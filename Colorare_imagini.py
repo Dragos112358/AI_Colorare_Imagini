@@ -2121,10 +2121,10 @@ if __name__ == '__main__':
     print("📁 Directoare și fișiere create cu succes!")
     print("📦 Pentru a instala dependențele, rulați: pip install -r requirements.txt")
     print("🌐 Pornesc serverul web local...")
-
+    load_models()
     # Încarcă modelele în background
-    model_thread = threading.Thread(target=load_models, daemon=True)
-    model_thread.start()
+    #model_thread = threading.Thread(target=load_models, daemon=True)
+    #model_thread.start()
 
     # Pornește serverul Flask
     try:
