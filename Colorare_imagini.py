@@ -416,6 +416,14 @@ def get_last_non_rgb_image_from_history(session_id):
     # Dacă toate sunt RGB, returnează originalul
     return session[session_id].get('original_filepath')
 
+@app.route("/test_model")
+def test_model():
+    try:
+        net = cv2.dnn.readNetFromCaffe(PROTO, MODEL)
+        return {"status": "success"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
 
 @app.route("/check_files")
 def check_files():
