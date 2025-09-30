@@ -1,0 +1,16 @@
+{
+  "filepath": "uploads\\d4787cb8-dfee-433e-881c-8a2592c84b2c_upscaled_4.0x_1759053693.png",
+  "history": [
+    {
+      "filepath": "uploads\\d4787cb8-dfee-433e-881c-8a2592c84b2c_original.png",
+      "name": "Original",
+      "timestamp": 1759053586.8941364
+    },
+    {
+      "name": "Upscale 4.0x",
+      "filepath": "uploads\\d4787cb8-dfee-433e-881c-8a2592c84b2c_upscaled_4.0x_1759053693.png",
+      "timestamp": 1759053696.0583127
+    }
+  ],
+  "original_filepath": "uploads\\d4787cb8-dfee-433e-881c-8a2592c84b2c_original.png"
+}

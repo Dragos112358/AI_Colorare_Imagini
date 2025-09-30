@@ -1,0 +1,26 @@
+{
+  "filepath": "C:\\Users\\gbonc\\OneDrive\\Desktop\\IA\\AI_colorare_imagini\\uploads\\bf36be93-6a32-427e-9c76-0be39ad89b05_red_channel_1759136705.png",
+  "original_filepath": "uploads\\bf36be93-6a32-427e-9c76-0be39ad89b05_original.png",
+  "history": [
+    {
+      "name": "Original",
+      "filepath": "uploads\\bf36be93-6a32-427e-9c76-0be39ad89b05_original.png",
+      "timestamp": 1759136601.1022213
+    },
+    {
+      "name": "Filtru Red Channel",
+      "filepath": "C:\\Users\\gbonc\\OneDrive\\Desktop\\IA\\AI_colorare_imagini\\uploads\\bf36be93-6a32-427e-9c76-0be39ad89b05_red_channel_1759136607.png",
+      "timestamp": 1759136607.5240295
+    },
+    {
+      "name": "Filtru Red Channel",
+      "filepath": "C:\\Users\\gbonc\\OneDrive\\Desktop\\IA\\AI_colorare_imagini\\uploads\\bf36be93-6a32-427e-9c76-0be39ad89b05_red_channel_1759136621.png",
+      "timestamp": 1759136621.3242095
+    },
+    {
+      "name": "Filtru Red Channel",
+      "filepath": "C:\\Users\\gbonc\\OneDrive\\Desktop\\IA\\AI_colorare_imagini\\uploads\\bf36be93-6a32-427e-9c76-0be39ad89b05_red_channel_1759136705.png",
+      "timestamp": 1759136705.74875
+    }
+  ]
+}

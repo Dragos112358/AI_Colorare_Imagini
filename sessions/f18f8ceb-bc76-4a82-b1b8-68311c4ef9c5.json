@@ -1,0 +1,16 @@
+{
+  "filepath": "C:\\Users\\gbonc\\OneDrive\\Desktop\\IA\\AI_colorare_imagini\\uploads\\f18f8ceb-bc76-4a82-b1b8-68311c4ef9c5_blur_1759062188.png",
+  "history": [
+    {
+      "filepath": "uploads\\f18f8ceb-bc76-4a82-b1b8-68311c4ef9c5_original.png",
+      "name": "Original",
+      "timestamp": 1759062175.2825172
+    },
+    {
+      "name": "Filtru Blur",
+      "filepath": "C:\\Users\\gbonc\\OneDrive\\Desktop\\IA\\AI_colorare_imagini\\uploads\\f18f8ceb-bc76-4a82-b1b8-68311c4ef9c5_blur_1759062188.png",
+      "timestamp": 1759062188.2181838
+    }
+  ],
+  "original_filepath": "uploads\\f18f8ceb-bc76-4a82-b1b8-68311c4ef9c5_original.png"
+}

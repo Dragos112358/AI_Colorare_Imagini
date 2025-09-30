@@ -1,0 +1,16 @@
+{
+  "filepath": "uploads\\5053ce65-f9ae-4fe8-b789-1b6fb0cb5d7f_colorized_1759053742.png",
+  "history": [
+    {
+      "filepath": "uploads\\5053ce65-f9ae-4fe8-b789-1b6fb0cb5d7f_original.png",
+      "name": "Original",
+      "timestamp": 1759053719.6015682
+    },
+    {
+      "name": "Colorare AI",
+      "filepath": "uploads\\5053ce65-f9ae-4fe8-b789-1b6fb0cb5d7f_colorized_1759053742.png",
+      "timestamp": 1759053742.846693
+    }
+  ],
+  "original_filepath": "uploads\\5053ce65-f9ae-4fe8-b789-1b6fb0cb5d7f_original.png"
+}

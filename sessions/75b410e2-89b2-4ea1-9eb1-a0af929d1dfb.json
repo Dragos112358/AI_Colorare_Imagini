@@ -1,0 +1,28 @@
+{
+  "filepath": "C:\\Users\\gbonc\\OneDrive\\Desktop\\IA\\AI_colorare_imagini\\uploads\\75b410e2-89b2-4ea1-9eb1-a0af929d1dfb_colorized_1759146047.png",
+  "original_filepath": "uploads\\75b410e2-89b2-4ea1-9eb1-a0af929d1dfb_original.png",
+  "history": [
+    {
+      "name": "Original",
+      "filepath": "uploads\\75b410e2-89b2-4ea1-9eb1-a0af929d1dfb_original.png",
+      "timestamp": 1759146045.4501417
+    },
+    {
+      "name": "Colorare AI",
+      "filepath": "C:\\Users\\gbonc\\OneDrive\\Desktop\\IA\\AI_colorare_imagini\\uploads\\75b410e2-89b2-4ea1-9eb1-a0af929d1dfb_colorized_1759146047.png",
+      "timestamp": 1759146047.3647714
+    }
+  ],
+  "redo": [
+    {
+      "name": "Filtru Blur",
+      "filepath": "C:\\Users\\gbonc\\OneDrive\\Desktop\\IA\\AI_colorare_imagini\\uploads\\75b410e2-89b2-4ea1-9eb1-a0af929d1dfb_blur_1759146052.png",
+      "timestamp": 1759146052.3049192
+    },
+    {
+      "name": "Filtru Red Channel",
+      "filepath": "C:\\Users\\gbonc\\OneDrive\\Desktop\\IA\\AI_colorare_imagini\\uploads\\75b410e2-89b2-4ea1-9eb1-a0af929d1dfb_red_channel_1759146048.png",
+      "timestamp": 1759146048.522572
+    }
+  ]
+}

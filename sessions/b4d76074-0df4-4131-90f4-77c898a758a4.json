@@ -1,0 +1,31 @@
+{
+  "filepath": "C:\\Users\\gbonc\\OneDrive\\Desktop\\IA\\AI_colorare_imagini\\uploads\\b4d76074-0df4-4131-90f4-77c898a758a4_brightness_1759149525.png",
+  "original_filepath": "uploads\\b4d76074-0df4-4131-90f4-77c898a758a4_original.png",
+  "history": [
+    {
+      "name": "Original",
+      "filepath": "uploads\\b4d76074-0df4-4131-90f4-77c898a758a4_original.png",
+      "timestamp": 1759149505.4196472
+    },
+    {
+      "name": "Colorare AI",
+      "filepath": "C:\\Users\\gbonc\\OneDrive\\Desktop\\IA\\AI_colorare_imagini\\uploads\\b4d76074-0df4-4131-90f4-77c898a758a4_colorized_1759149507.png",
+      "timestamp": 1759149508.029969
+    },
+    {
+      "name": "Filtru Blur",
+      "filepath": "C:\\Users\\gbonc\\OneDrive\\Desktop\\IA\\AI_colorare_imagini\\uploads\\b4d76074-0df4-4131-90f4-77c898a758a4_blur_1759149515.png",
+      "timestamp": 1759149515.3356974
+    },
+    {
+      "name": "Filtru Brightness",
+      "filepath": "C:\\Users\\gbonc\\OneDrive\\Desktop\\IA\\AI_colorare_imagini\\uploads\\b4d76074-0df4-4131-90f4-77c898a758a4_brightness_1759149519.png",
+      "timestamp": 1759149519.2920263
+    },
+    {
+      "name": "Filtru Brightness",
+      "filepath": "C:\\Users\\gbonc\\OneDrive\\Desktop\\IA\\AI_colorare_imagini\\uploads\\b4d76074-0df4-4131-90f4-77c898a758a4_brightness_1759149525.png",
+      "timestamp": 1759149525.5092912
+    }
+  ]
+}

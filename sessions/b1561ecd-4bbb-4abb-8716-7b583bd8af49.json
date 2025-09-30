@@ -1,0 +1,16 @@
+{
+  "filepath": "uploads\\b1561ecd-4bbb-4abb-8716-7b583bd8af49_negative_1759060319.png",
+  "history": [
+    {
+      "filepath": "uploads\\b1561ecd-4bbb-4abb-8716-7b583bd8af49_original.png",
+      "name": "Original",
+      "timestamp": 1759060306.971748
+    },
+    {
+      "name": "Filtru Negative",
+      "filepath": "uploads\\b1561ecd-4bbb-4abb-8716-7b583bd8af49_negative_1759060319.png",
+      "timestamp": 1759060319.4561095
+    }
+  ],
+  "original_filepath": "uploads\\b1561ecd-4bbb-4abb-8716-7b583bd8af49_original.png"
+}

@@ -1,0 +1,16 @@
+{
+  "filepath": "uploads\\287e97c3-95ed-4dc9-a143-ead549def17d_blur_1759056306.png",
+  "history": [
+    {
+      "filepath": "uploads\\287e97c3-95ed-4dc9-a143-ead549def17d_original.png",
+      "name": "Original",
+      "timestamp": 1759056297.545607
+    },
+    {
+      "name": "Filtru Blur",
+      "filepath": "uploads\\287e97c3-95ed-4dc9-a143-ead549def17d_blur_1759056306.png",
+      "timestamp": 1759056306.7873845
+    }
+  ],
+  "original_filepath": "uploads\\287e97c3-95ed-4dc9-a143-ead549def17d_original.png"
+}

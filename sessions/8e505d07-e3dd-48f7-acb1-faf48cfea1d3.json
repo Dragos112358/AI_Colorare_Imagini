@@ -1,0 +1,18 @@
+{
+  "filepath": "uploads\\8e505d07-e3dd-48f7-acb1-faf48cfea1d3_original.png",
+  "original_filepath": "uploads\\8e505d07-e3dd-48f7-acb1-faf48cfea1d3_original.png",
+  "history": [
+    {
+      "name": "Original",
+      "filepath": "uploads\\8e505d07-e3dd-48f7-acb1-faf48cfea1d3_original.png",
+      "timestamp": 1759145026.211357
+    }
+  ],
+  "redo": [
+    {
+      "name": "Filtru Red Channel",
+      "filepath": "C:\\Users\\gbonc\\OneDrive\\Desktop\\IA\\AI_colorare_imagini\\uploads\\8e505d07-e3dd-48f7-acb1-faf48cfea1d3_red_channel_1759145038.png",
+      "timestamp": 1759145038.5793767
+    }
+  ]
+}

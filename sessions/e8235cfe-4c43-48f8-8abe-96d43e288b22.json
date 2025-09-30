@@ -1,0 +1,43 @@
+{
+  "filepath": "uploads\\e8235cfe-4c43-48f8-8abe-96d43e288b22_original.png",
+  "original_filepath": "uploads\\e8235cfe-4c43-48f8-8abe-96d43e288b22_original.png",
+  "history": [
+    {
+      "name": "Original",
+      "filepath": "uploads\\e8235cfe-4c43-48f8-8abe-96d43e288b22_original.png",
+      "timestamp": 1759150926.8262408
+    }
+  ],
+  "redo": [
+    {
+      "name": "Filtru Brightness",
+      "filepath": "C:\\Users\\gbonc\\OneDrive\\Desktop\\IA\\AI_colorare_imagini\\uploads\\e8235cfe-4c43-48f8-8abe-96d43e288b22_brightness_1759150717.png",
+      "timestamp": 1759150717.665984
+    },
+    {
+      "name": "Filtru Brightness",
+      "filepath": "C:\\Users\\gbonc\\OneDrive\\Desktop\\IA\\AI_colorare_imagini\\uploads\\e8235cfe-4c43-48f8-8abe-96d43e288b22_brightness_1759150772.png",
+      "timestamp": 1759150772.0963922
+    },
+    {
+      "name": "Filtru Brightness",
+      "filepath": "C:\\Users\\gbonc\\OneDrive\\Desktop\\IA\\AI_colorare_imagini\\uploads\\e8235cfe-4c43-48f8-8abe-96d43e288b22_brightness_1759150767.png",
+      "timestamp": 1759150767.8750584
+    },
+    {
+      "name": "Filtru Brightness",
+      "filepath": "C:\\Users\\gbonc\\OneDrive\\Desktop\\IA\\AI_colorare_imagini\\uploads\\e8235cfe-4c43-48f8-8abe-96d43e288b22_brightness_1759150764.png",
+      "timestamp": 1759150764.6841717
+    },
+    {
+      "name": "Filtru Edge Detection",
+      "filepath": "C:\\Users\\gbonc\\OneDrive\\Desktop\\IA\\AI_colorare_imagini\\uploads\\e8235cfe-4c43-48f8-8abe-96d43e288b22_edge_detection_1759150823.png",
+      "timestamp": 1759150823.6246147
+    },
+    {
+      "name": "Filtru Grayscale",
+      "filepath": "C:\\Users\\gbonc\\OneDrive\\Desktop\\IA\\AI_colorare_imagini\\uploads\\e8235cfe-4c43-48f8-8abe-96d43e288b22_grayscale_1759150892.png",
+      "timestamp": 1759150892.8973079
+    }
+  ]
+}

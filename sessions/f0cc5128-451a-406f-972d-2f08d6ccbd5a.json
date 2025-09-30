@@ -1,0 +1,26 @@
+{
+  "filepath": "C:\\Users\\gbonc\\OneDrive\\Desktop\\IA\\AI_colorare_imagini\\uploads\\f0cc5128-451a-406f-972d-2f08d6ccbd5a_blur_1759063129.png",
+  "history": [
+    {
+      "filepath": "uploads\\f0cc5128-451a-406f-972d-2f08d6ccbd5a_original.png",
+      "name": "Original",
+      "timestamp": 1759063117.4970193
+    },
+    {
+      "filepath": "C:\\Users\\gbonc\\OneDrive\\Desktop\\IA\\AI_colorare_imagini\\uploads\\f0cc5128-451a-406f-972d-2f08d6ccbd5a_colorized_1759063119.png",
+      "name": "Colorare AI",
+      "timestamp": 1759063119.705338
+    },
+    {
+      "filepath": "C:\\Users\\gbonc\\OneDrive\\Desktop\\IA\\AI_colorare_imagini\\uploads\\f0cc5128-451a-406f-972d-2f08d6ccbd5a_blur_1759063123.png",
+      "name": "Filtru Blur",
+      "timestamp": 1759063123.4148703
+    },
+    {
+      "filepath": "C:\\Users\\gbonc\\OneDrive\\Desktop\\IA\\AI_colorare_imagini\\uploads\\f0cc5128-451a-406f-972d-2f08d6ccbd5a_blur_1759063129.png",
+      "name": "Filtru Blur",
+      "timestamp": 1759063129.870446
+    }
+  ],
+  "original_filepath": "uploads\\f0cc5128-451a-406f-972d-2f08d6ccbd5a_original.png"
+}

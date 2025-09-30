@@ -1,0 +1,48 @@
+{
+  "filepath": "uploads\\b0ca88e1-287d-4936-8e69-4ca37a162532_original.png",
+  "original_filepath": "uploads\\b0ca88e1-287d-4936-8e69-4ca37a162532_original.png",
+  "history": [
+    {
+      "name": "Original",
+      "filepath": "uploads\\b0ca88e1-287d-4936-8e69-4ca37a162532_original.png",
+      "timestamp": 1759220727.445408
+    }
+  ],
+  "redo": [
+    {
+      "name": "Filtru Negative",
+      "filepath": "C:\\Users\\gbonc\\OneDrive\\Desktop\\IA\\AI_colorare_imagini\\uploads\\b0ca88e1-287d-4936-8e69-4ca37a162532_negative_1759220673.png",
+      "timestamp": 1759220673.154513
+    },
+    {
+      "name": "Filtru Edge Detection",
+      "filepath": "C:\\Users\\gbonc\\OneDrive\\Desktop\\IA\\AI_colorare_imagini\\uploads\\b0ca88e1-287d-4936-8e69-4ca37a162532_edge_detection_1759220670.png",
+      "timestamp": 1759220670.3176856
+    },
+    {
+      "name": "Filtru Negative",
+      "filepath": "C:\\Users\\gbonc\\OneDrive\\Desktop\\IA\\AI_colorare_imagini\\uploads\\b0ca88e1-287d-4936-8e69-4ca37a162532_negative_1759220668.png",
+      "timestamp": 1759220668.2838905
+    },
+    {
+      "name": "Filtru Edge Detection",
+      "filepath": "C:\\Users\\gbonc\\OneDrive\\Desktop\\IA\\AI_colorare_imagini\\uploads\\b0ca88e1-287d-4936-8e69-4ca37a162532_edge_detection_1759220687.png",
+      "timestamp": 1759220687.3917532
+    },
+    {
+      "name": "Filtru Brightness",
+      "filepath": "C:\\Users\\gbonc\\OneDrive\\Desktop\\IA\\AI_colorare_imagini\\uploads\\b0ca88e1-287d-4936-8e69-4ca37a162532_brightness_1759220665.png",
+      "timestamp": 1759220665.2767937
+    },
+    {
+      "name": "Filtru Edge Detection",
+      "filepath": "C:\\Users\\gbonc\\OneDrive\\Desktop\\IA\\AI_colorare_imagini\\uploads\\b0ca88e1-287d-4936-8e69-4ca37a162532_edge_detection_1759220697.png",
+      "timestamp": 1759220697.8079004
+    },
+    {
+      "name": "Filtru Blur",
+      "filepath": "C:\\Users\\gbonc\\OneDrive\\Desktop\\IA\\AI_colorare_imagini\\uploads\\b0ca88e1-287d-4936-8e69-4ca37a162532_blur_1759220662.png",
+      "timestamp": 1759220662.2618287
+    }
+  ]
+}

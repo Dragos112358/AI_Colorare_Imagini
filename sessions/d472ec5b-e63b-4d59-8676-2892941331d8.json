@@ -1,0 +1,28 @@
+{
+  "filepath": "C:\\Users\\gbonc\\OneDrive\\Desktop\\IA\\AI_colorare_imagini\\uploads\\d472ec5b-e63b-4d59-8676-2892941331d8_rotate_1759151793.png",
+  "original_filepath": "uploads\\d472ec5b-e63b-4d59-8676-2892941331d8_original.png",
+  "history": [
+    {
+      "name": "Original",
+      "filepath": "uploads\\d472ec5b-e63b-4d59-8676-2892941331d8_original.png",
+      "timestamp": 1759151730.0552435
+    },
+    {
+      "name": "Colorare AI",
+      "filepath": "C:\\Users\\gbonc\\OneDrive\\Desktop\\IA\\AI_colorare_imagini\\uploads\\d472ec5b-e63b-4d59-8676-2892941331d8_colorized_1759151785.png",
+      "timestamp": 1759151785.7791274
+    },
+    {
+      "name": "Filtru Rotate",
+      "filepath": "C:\\Users\\gbonc\\OneDrive\\Desktop\\IA\\AI_colorare_imagini\\uploads\\d472ec5b-e63b-4d59-8676-2892941331d8_rotate_1759151793.png",
+      "timestamp": 1759151793.7421806
+    }
+  ],
+  "redo": [
+    {
+      "name": "Filtru Rotate",
+      "filepath": "C:\\Users\\gbonc\\OneDrive\\Desktop\\IA\\AI_colorare_imagini\\uploads\\d472ec5b-e63b-4d59-8676-2892941331d8_rotate_1759151642.png",
+      "timestamp": 1759151642.460915
+    }
+  ]
+}
