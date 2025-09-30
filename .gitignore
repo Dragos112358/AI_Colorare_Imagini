@@ -1,0 +1,3 @@
+*.caffemodel
+*.pth
+models/
