@@ -417,6 +417,18 @@ def get_last_non_rgb_image_from_history(session_id):
     return session[session_id].get('original_filepath')
 
 
+@app.route("/check_files")
+def check_files():
+    files_info = {}
+    for root, dirs, files in os.walk("."):
+        for f in files:
+            path = os.path.join(root, f)
+            files_info[path] = os.path.getsize(path)
+    return jsonify(files_info)
+
+
+
+
 @app.route('/api/filter', methods=['POST'])
 def apply_image_filter():
     """Aplică un filtru pe imaginea CURENTĂ și salvează rezultatul"""
