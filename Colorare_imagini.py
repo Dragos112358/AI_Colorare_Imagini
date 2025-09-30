@@ -38,6 +38,8 @@ UPLOAD_FOLDER = 'uploads'
 MODELS_FOLDER = 'models'
 TEMPLATES_FOLDER = 'templates'
 SESSIONS_FOLDER = 'sessions'
+IS_RENDER = os.environ.get('RENDER') == 'true'
+print(f"🌍 Environment: {'RENDER' if IS_RENDER else 'LOCAL'}")
 
 # Creează directoarele necesare
 for folder in [UPLOAD_FOLDER, MODELS_FOLDER, TEMPLATES_FOLDER, SESSIONS_FOLDER]:
@@ -54,67 +56,119 @@ PROTO = os.path.join(MODELS_FOLDER, "colorization_deploy_v2.prototxt")
 MODEL = os.path.join(MODELS_FOLDER, "colorization_release_v2.caffemodel")
 PTS = os.path.join(MODELS_FOLDER, "pts_in_hull.npy")
 
-# Variabile globale pentru modele
 colorizer_net = None
-model_loading_status = {"status": "loading", "message": "Descărcare modele în curs..."}
+model_loading_status = {"status": "loading", "message": "Inițializare..."}
 
 
 def download_file_with_fallback(urls, dst, description="fișier"):
-    """Descarcă fișier cu multiple URL-uri de backup"""
+    """Descarcă fișier cu multiple URL-uri de backup și progress logging"""
     if os.path.exists(dst):
-        print(f"{dst} există deja.")
-        return dst
+        file_size = os.path.getsize(dst)
+        print(f"   ℹ️  {dst} există deja ({file_size} bytes)")
+        # Verifică dacă fișierul e valid (mai mare de 1KB)
+        if file_size > 1000:
+            return dst
+        else:
+            print(f"   ⚠️  Fișier prea mic, șterg și descarc din nou...")
+            os.remove(dst)
 
     if not isinstance(urls, list):
         urls = [urls]
 
     for i, url in enumerate(urls):
-        print(f"Descărcare {description} de la URL {i + 1}/{len(urls)}...")
+        print(f"   🌐 Încerc URL {i + 1}/{len(urls)}: {url[:80]}...")
         try:
-            response = requests.get(url, stream=True, timeout=120, headers={
+            # Timeout mai mare pentru Render (conexiune mai lentă)
+            timeout = 300 if IS_RENDER else 180
+
+            response = requests.get(url, stream=True, timeout=timeout, headers={
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
             })
+
             if response.status_code == 200:
+                total_size = int(response.headers.get('content-length', 0))
+                downloaded = 0
+                start_time = time.time()
+
                 with open(dst, 'wb') as f:
                     for chunk in response.iter_content(chunk_size=8192):
                         if chunk:
                             f.write(chunk)
-                print(f"Descărcare completă: {dst}")
-                return dst
-        except Exception as e:
-            print(f"Eroare la descărcare: {e}")
+                            downloaded += len(chunk)
 
-    raise Exception(f"Nu am putut descărca {description}")
+                            # Log progress la fiecare 10MB
+                            if total_size > 0 and downloaded % (10 * 1024 * 1024) < 8192:
+                                elapsed = time.time() - start_time
+                                speed = downloaded / elapsed / (1024 * 1024)  # MB/s
+                                percent = (downloaded / total_size) * 100
+                                print(
+                                    f"      📊 {downloaded / (1024 * 1024):.1f}MB / {total_size / (1024 * 1024):.1f}MB ({percent:.1f}%) - {speed:.2f}MB/s")
+
+                final_size = os.path.getsize(dst)
+                elapsed = time.time() - start_time
+                print(f"   ✅ Descărcare completă: {dst} ({final_size} bytes în {elapsed:.1f}s)")
+                return dst
+            else:
+                print(f"   ⚠️  Status code: {response.status_code}")
+
+        except Exception as e:
+            print(f"   ❌ Eroare: {str(e)[:100]}")
+            if i < len(urls) - 1:
+                print(f"   🔄 Încerc următorul URL...")
+            time.sleep(2)  # Pauză între încercări
+
+    raise Exception(f"Nu am putut descărca {description} de la niciun URL")
 
 
 def load_models():
-    """Încarcă doar modelul de colorizare"""
+    """Încarcă doar modelul de colorizare cu logging detaliat"""
     global colorizer_net, model_loading_status
 
     try:
+        print("=" * 80)
+        print("🔵 START: Încărcare modele...")
         model_loading_status = {"status": "loading", "message": "Descărcare modele de colorizare..."}
 
-        # Descarcă doar modelele de colorizare
+        # 1. Descarcă prototxt
+        print("📥 [1/3] Descărcare prototxt...")
+        model_loading_status["message"] = "Descărcare prototxt (1/3)..."
         download_file_with_fallback(PROTO_URL, PROTO, "prototxt colorizare")
+        print("✅ Prototxt descărcat!")
+
+        # 2. Descarcă modelul (cel mai mare fișier - ~130MB)
+        print("📥 [2/3] Descărcare model caffemodel (~130MB, poate dura 1-3 minute)...")
+        model_loading_status["message"] = "Descărcare model caffemodel 130MB (2/3)..."
         download_file_with_fallback([MODEL_URL, ALT_MODEL_URL], MODEL, "model colorizare")
+        print("✅ Model caffemodel descărcat!")
+
+        # 3. Descarcă pts_in_hull
+        print("📥 [3/3] Descărcare pts_in_hull.npy...")
+        model_loading_status["message"] = "Descărcare pts_in_hull.npy (3/3)..."
         download_file_with_fallback(PTS_URL, PTS, "pts_in_hull.npy")
+        print("✅ Pts_in_hull descărcat!")
 
-        # Încarcă modelul de colorizare
-        print("Încărcare model colorizare...")
+        # 4. Încarcă modelul în memorie
+        print("🧠 Încărcare model în memorie...")
+        model_loading_status["message"] = "Încărcare model în memorie..."
         colorizer_net = cv2.dnn.readNetFromCaffe(PROTO, MODEL)
-        pts_in_hull = np.load(PTS)
 
+        print("🔧 Configurare layere...")
+        pts_in_hull = np.load(PTS)
         pts = pts_in_hull.transpose().reshape(2, 313, 1, 1)
         colorizer_net.getLayer(colorizer_net.getLayerId('class8_ab')).blobs = [pts.astype(np.float32)]
         colorizer_net.getLayer(colorizer_net.getLayerId('conv8_313_rh')).blobs = [np.array([2.606], dtype=np.float32)]
 
         model_loading_status = {"status": "success", "message": "Model de colorizare încărcat cu succes!"}
-        print("Model de colorizare încărcat cu succes!")
+        print("✅ ✅ ✅ MODEL ÎNCĂRCAT CU SUCCES!")
+        print("=" * 80)
 
     except Exception as e:
-        model_loading_status = {"status": "error", "message": f"Eroare la încărcarea modelelor: {str(e)}"}
-        print(f"Eroare la încărcarea modelelor: {e}")
-
+        error_msg = f"Eroare la încărcarea modelelor: {str(e)}"
+        model_loading_status = {"status": "error", "message": error_msg}
+        print(f"❌ {error_msg}")
+        print("=" * 80)
+        import traceback
+        traceback.print_exc()
 
 # === FUNCȚII PENTRU SESIUNI PERSISTENTE ===
 def save_session_to_disk(session_id, session_data):
