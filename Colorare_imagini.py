@@ -4,9 +4,9 @@
 Enhanced AI Image Processor - COMPLETELY FIXED VERSION
 Problemele rezolvate:
 1. send_from_directory syntax fix pentru Flask 2.3.3
-2. Aplicarea cumulativă a filtrelor (pe rezultatul anterior)
+2. Aplicarea cumulativa a filtrelor (pe rezultatul anterior)
 3. Istoric persistent pe disc
-4. Debugging îmbunătățit pentru trasarea problemelor
+4. Debugging Imbunatatit pentru trasarea problemelor
 
 Rulare:
     pip install -r requirements.txt
@@ -14,7 +14,35 @@ Rulare:
 """
 
 import os
-import cv2
+import sys
+import tempfile
+
+# Detecteaza automat versiunea Python din venv
+venv_lib = os.path.join(os.path.dirname(__file__), 'venv', 'lib')
+if os.path.exists(venv_lib):
+    for item in os.listdir(venv_lib):
+        if item.startswith('python'):
+            venv_site = os.path.join(venv_lib, item, 'site-packages')
+            if os.path.exists(venv_site) and venv_site not in sys.path:
+                sys.path.insert(0, venv_site)
+                break
+
+# DEBUG - Adauga temporar pentru a vedea ce se Intâmpla
+import sys
+
+print(f"DEBUG: Python executable: {sys.executable}", file=sys.stderr)
+print(f"DEBUG: sys.path: {sys.path[:3]}", file=sys.stderr)
+
+# Acum Incearca sa importe cv2
+try:
+    import cv2
+
+    print(f"DEBUG: cv2 importat cu succes din {cv2.__file__}", file=sys.stderr)
+except ImportError as e:
+    print(f"DEBUG: Eroare la importul cv2: {e}", file=sys.stderr)
+    print(f"DEBUG: Verifica daca exista {venv_site}", file=sys.stderr)
+    raise
+
 import numpy as np
 import requests
 import uuid
@@ -25,23 +53,53 @@ import threading
 from werkzeug.utils import secure_filename
 from flask_session import Session
 
+
+# Detectare mediu
+IS_PRODUCTION = os.environ.get('ENVIRONMENT') == 'production' or \
+                os.environ.get('RENDER') is not None or \
+                'zooku' in os.environ.get('WEBSITE_HOSTNAME', '').lower()
+
+
+IS_RENDER = os.environ.get('RENDER') is not None
+IS_ZOOKU = 'zooku' in os.environ.get('WEBSITE_HOSTNAME', '').lower() or \
+           'zooku' in os.environ.get('VERCEL_URL', '').lower()
+
+# CRITICAL: Pe Zooku folosește directorul curent (fișierele există deja!)
+if IS_ZOOKU:
+    MODELS_FOLDER = os.path.join(os.path.dirname(__file__), 'models')
+    print(f"Zooku detectat - folosesc modelele existente din: {MODELS_FOLDER}")
+elif IS_RENDER:
+    MODELS_FOLDER = os.path.join(tempfile.gettempdir(), 'colorization_models')
+    print(f"Render detectat - descărcare în: {MODELS_FOLDER}")
+else:
+    MODELS_FOLDER = os.path.join(os.path.dirname(__file__), 'models')
+    print(f"Local - folosesc: {MODELS_FOLDER}")
+
+os.makedirs(MODELS_FOLDER, exist_ok=True)
+
 # Configurare Flask
 app = Flask(__name__)
 app.secret_key = 'your-secret-key-change-this'
 app.config['MAX_CONTENT_LENGTH'] = 300 * 1024 * 1024
 app.config['SESSION_TYPE'] = 'filesystem'
 app.config['SESSION_FILE_DIR'] = './flask_session'
+app.config['JSON_AS_ASCII'] = False
 Session(app)
 
-# Directoare pentru fișiere
+os.environ['OPENBLAS_NUM_THREADS'] = '4'
+os.environ['MKL_NUM_THREADS'] = '4'
+os.environ['NUMEXPR_NUM_THREADS'] = '4'
+os.environ['OMP_NUM_THREADS'] = '4'
+
+# Directoare pentru fisiere
 UPLOAD_FOLDER = 'uploads'
 MODELS_FOLDER = 'models'
 TEMPLATES_FOLDER = 'templates'
 SESSIONS_FOLDER = 'sessions'
 IS_RENDER = os.environ.get('RENDER') == 'true'
-print(f"🌍 Environment: {'RENDER' if IS_RENDER else 'LOCAL'}")
+print(f"Environment: {'RENDER' if IS_RENDER else 'LOCAL'}")
 
-# Creează directoarele necesare
+# Creeaza directoarele necesare
 for folder in [UPLOAD_FOLDER, MODELS_FOLDER, TEMPLATES_FOLDER, SESSIONS_FOLDER]:
     os.makedirs(folder, exist_ok=True)
 
@@ -51,34 +109,37 @@ MODEL_URL = "https://www.dropbox.com/s/dx0qvhhp5hbcx7z/colorization_release_v2.c
 PTS_URL = "https://raw.githubusercontent.com/richzhang/colorization/caffe/resources/pts_in_hull.npy"
 ALT_MODEL_URL = "https://github.com/opencv/opencv_extra/raw/master/testdata/dnn/colorization_release_v2.caffemodel"
 
-# Nume fișiere
+# Nume fisiere
 PROTO = os.path.join(MODELS_FOLDER, "colorization_deploy_v2.prototxt")
 MODEL = os.path.join(MODELS_FOLDER, "colorization_release_v2.caffemodel")
 PTS = os.path.join(MODELS_FOLDER, "pts_in_hull.npy")
 
 colorizer_net = None
-model_loading_status = {"status": "loading", "message": "Inițializare..."}
+model_logs = []
+
+model_loading_status = {"status": "loading", "message": "Initializare..."}
 
 
-def download_file_with_fallback(urls, dst, description="fișier"):
-    """Descarcă fișier cu multiple URL-uri de backup și progress logging"""
+
+def download_file_with_fallback(urls, dst, description="fisier"):
+    """Descarca fisier cu multiple URL-uri de backup si progress logging"""
     if os.path.exists(dst):
         file_size = os.path.getsize(dst)
-        print(f"   ℹ️  {dst} există deja ({file_size} bytes)")
-        # Verifică dacă fișierul e valid (mai mare de 1KB)
+        print(f"{dst} exista deja ({file_size} bytes)")
+        # Verifica daca fisierul e valid (mai mare de 1KB)
         if file_size > 1000:
             return dst
         else:
-            print(f"   ⚠️  Fișier prea mic, șterg și descarc din nou...")
+            print(f"Fisier prea mic, sterg si descarc din nou...")
             os.remove(dst)
 
     if not isinstance(urls, list):
         urls = [urls]
 
     for i, url in enumerate(urls):
-        print(f"   🌐 Încerc URL {i + 1}/{len(urls)}: {url[:80]}...")
+        print(f"Incerc URL {i + 1}/{len(urls)}: {url[:80]}...")
         try:
-            # Timeout mai mare pentru Render (conexiune mai lentă)
+            # Timeout mai mare pentru Render (conexiune mai lenta)
             timeout = 300 if IS_RENDER else 180
 
             response = requests.get(url, stream=True, timeout=timeout, headers={
@@ -102,150 +163,166 @@ def download_file_with_fallback(urls, dst, description="fișier"):
                                 speed = downloaded / elapsed / (1024 * 1024)  # MB/s
                                 percent = (downloaded / total_size) * 100
                                 print(
-                                    f"      📊 {downloaded / (1024 * 1024):.1f}MB / {total_size / (1024 * 1024):.1f}MB ({percent:.1f}%) - {speed:.2f}MB/s")
+                                    f" {downloaded / (1024 * 1024):.1f}MB / {total_size / (1024 * 1024):.1f}MB ({percent:.1f}%) - {speed:.2f}MB/s")
 
                 final_size = os.path.getsize(dst)
                 elapsed = time.time() - start_time
-                print(f"   ✅ Descărcare completă: {dst} ({final_size} bytes în {elapsed:.1f}s)")
+                print(f"Descarcare completa: {dst} ({final_size} bytes In {elapsed:.1f}s)")
                 return dst
             else:
-                print(f"   ⚠️  Status code: {response.status_code}")
+                print(f"Status code: {response.status_code}")
 
         except Exception as e:
-            print(f"   ❌ Eroare: {str(e)[:100]}")
+            print(f"Eroare: {str(e)[:100]}")
             if i < len(urls) - 1:
-                print(f"   🔄 Încerc următorul URL...")
-            time.sleep(2)  # Pauză între încercări
+                print(f"Incerc urmatorul URL...")
+            time.sleep(2)  # Pauza Intre Incercari
 
-    raise Exception(f"Nu am putut descărca {description} de la niciun URL")
+    raise Exception(f"Nu am putut descarca {description} de la niciun URL")
 
+
+def log(msg):
+    """Adaugă un mesaj în lista de loguri și actualizează status"""
+    global model_logs
+    model_logs.append(msg)
+    print(msg)  # Tot poți păstra print-ul local pentru debug local
 
 def load_models():
-    """Încarcă doar modelul de colorizare cu logging detaliat"""
+    """Încarcă modele și loghează progresul"""
     global colorizer_net, model_loading_status
 
     try:
-        print("=" * 80)
-        print("🔵 START: Încărcare modele...")
-        model_loading_status = {"status": "loading", "message": "Descărcare modele de colorizare..."}
+        log("=" * 80)
+        log("START: Incarcare modele...")
+        model_loading_status.update({"status": "loading", "message": "Descarcare modele de colorizare..."})
 
-        # 1. Descarcă prototxt
-        print("📥 [1/3] Descărcare prototxt...")
-        model_loading_status["message"] = "Descărcare prototxt (1/3)..."
+        # 1. Prototxt
+        log("[1/3] Descarcare prototxt...")
+        model_loading_status["message"] = "Descarcare prototxt (1/3)..."
         download_file_with_fallback(PROTO_URL, PROTO, "prototxt colorizare")
-        print("✅ Prototxt descărcat!")
+        log("Prototxt descarcat!")
 
-        # 2. Descarcă modelul (cel mai mare fișier - ~130MB)
-        print("📥 [2/3] Descărcare model caffemodel (~130MB, poate dura 1-3 minute)...")
-        model_loading_status["message"] = "Descărcare model caffemodel 130MB (2/3)..."
+        # 2. Caffemodel
+        log("[2/3] Descarcare model caffemodel (~130MB)...")
+        model_loading_status["message"] = "Descarcare model caffemodel (2/3)..."
         download_file_with_fallback([MODEL_URL, ALT_MODEL_URL], MODEL, "model colorizare")
-        print("✅ Model caffemodel descărcat!")
+        log("Model caffemodel descarcat!")
 
-        # 3. Descarcă pts_in_hull
-        print("📥 [3/3] Descărcare pts_in_hull.npy...")
-        model_loading_status["message"] = "Descărcare pts_in_hull.npy (3/3)..."
+        # 3. pts_in_hull
+        log("[3/3] Descarcare pts_in_hull.npy...")
+        model_loading_status["message"] = "Descarcare pts_in_hull.npy (3/3)..."
         download_file_with_fallback(PTS_URL, PTS, "pts_in_hull.npy")
-        print("✅ Pts_in_hull descărcat!")
+        log("pts_in_hull descarcat!")
 
-        # 4. Încarcă modelul în memorie
-        print("🧠 Încărcare model în memorie...")
-        model_loading_status["message"] = "Încărcare model în memorie..."
+        # 4. Incarcare model
+        log("Incarcare model in memorie...")
+        model_loading_status["message"] = "Incarcare model in memorie..."
         colorizer_net = cv2.dnn.readNetFromCaffe(PROTO, MODEL)
 
-        print("🔧 Configurare layere...")
+        log("Configurare layere...")
         pts_in_hull = np.load(PTS)
         pts = pts_in_hull.transpose().reshape(2, 313, 1, 1)
         colorizer_net.getLayer(colorizer_net.getLayerId('class8_ab')).blobs = [pts.astype(np.float32)]
         colorizer_net.getLayer(colorizer_net.getLayerId('conv8_313_rh')).blobs = [np.array([2.606], dtype=np.float32)]
 
-        model_loading_status = {"status": "success", "message": "Model de colorizare încărcat cu succes!"}
-        print("✅ ✅ ✅ MODEL ÎNCĂRCAT CU SUCCES!")
-        print("=" * 80)
+        model_loading_status.update({"status": "success", "message": "Model de colorizare incarcat cu succes!"})
+        log("MODEL INCARCAT CU SUCCES!")
+        log("=" * 80)
 
     except Exception as e:
-        error_msg = f"Eroare la încărcarea modelelor: {str(e)}"
-        model_loading_status = {"status": "error", "message": error_msg}
-        print(f"❌ {error_msg}")
-        print("=" * 80)
+        error_msg = f"Eroare la Incarcarea modelelor: {str(e)}"
+        model_loading_status.update({"status": "error", "message": error_msg})
+        log(error_msg)
         import traceback
         traceback.print_exc()
 
-# === FUNCȚII PENTRU SESIUNI PERSISTENTE ===
+
+def load_models_async():
+    """Incarca modeleleIn background pentru a nu bloca startup-ul"""
+    try:
+        print("Incepe incarcarea modelelorIn background...")
+        load_models()  # Functia ta deIncarcare
+        print("Modele incarcate cu succes!")
+    except Exception as e:
+        print(f"EROARE laIncarcarea modelelor: {e}")
+        import traceback
+        traceback.print_exc()
+#threading.Thread(target=load_models_async, daemon=True).start()
+load_models();
+# === FUNCtII PENTRU SESIUNI PERSISTENTE ===
 def save_session_to_disk(session_id, session_data):
-    """Salvează sesiunea pe disc în mod atomic și robust"""
+    """Salveaza sesiunea pe disc In mod atomic si robust"""
     session_file = os.path.join(SESSIONS_FOLDER, f"{session_id}.json")
     tmp_file = session_file + ".tmp"
 
     try:
-        # normalizează structura minimă
+        # normalizeaza structura minima
         if not isinstance(session_data.get('history', []), list):
             session_data['history'] = []
 
         with open(tmp_file, 'w', encoding='utf-8', newline='') as f:
             json.dump(session_data, f, ensure_ascii=False, indent=2)
 
-        # atomic replace (înlocuiește vechiul fișier doar după scriere completă)
+        # atomic replace (Inlocuieste vechiul fisier doar dupa scriere completa)
         os.replace(tmp_file, session_file)
 
         print(
-            f"DEBUG: Sesiune salvată pentru {session_id} "
-            f"cu {len(session_data['history'])} intrări în istoric"
+            f"DEBUG: Sesiune salvata pentru {session_id} "
+            f"cu {len(session_data['history'])} intrari In istoric"
         )
     except Exception as e:
         print(f"Eroare la salvarea sesiunii {session_id}: {e}")
 
 
-
 def load_session_from_disk(session_id):
-    """Încarcă sesiunea de pe disc"""
+    """Incarca sesiunea de pe disc"""
     session_file = os.path.join(SESSIONS_FOLDER, f"{session_id}.json")
     if os.path.exists(session_file):
         try:
             with open(session_file, 'r', encoding='utf-8') as f:
                 data = json.load(f)
-            print(f"DEBUG: Sesiune încărcată pentru {session_id} cu {len(data.get('history', []))} intrări în istoric")
+            print(f"DEBUG: Sesiune Incarcata pentru {session_id} cu {len(data.get('history', []))} intrari In istoric")
             return data
         except Exception as e:
-            print(f"Eroare la încărcarea sesiunii: {e}")
+            print(f"Eroare la Incarcarea sesiunii: {e}")
     return None
 
 
 def update_session_data(session_id, new_filepath, operation_name):
-    """Actualizează sesiunea cu o nouă imagine și operație"""
-    print(f"DEBUG: Actualizez sesiunea {session_id} cu operația '{operation_name}' și fișierul {new_filepath}")
+    """Actualizeaza sesiunea cu o noua imagine si operatie"""
+    print(f"DEBUG: Actualizez sesiunea {session_id} cu operatia '{operation_name}' si fisierul {new_filepath}")
 
     if session_id not in session:
-        # Încarcă din disc dacă nu e în memorie
+        # Incarca din disc daca nu e In memorie
         disk_session = load_session_from_disk(session_id)
         if disk_session:
             session[session_id] = disk_session
         else:
-            print(f"DEBUG: Nu am găsit sesiunea {session_id}")
+            print(f"DEBUG: Nu am gasit sesiunea {session_id}")
             return False
 
-    # Inițializează history dacă nu există
+    # Initializeaza history daca nu exista
     if 'history' not in session[session_id]:
         session[session_id]['history'] = []
 
-    # Actualizează datele sesiunii
+    # Actualizeaza datele sesiunii
     session[session_id]['filepath'] = os.path.abspath(new_filepath)
     session[session_id]['history'].append({
         'name': operation_name,
         'filepath': os.path.abspath(new_filepath),
         'timestamp': time.time()
     })
-    print(f"DEBUG: Istoric actualizat are {len(session[session_id]['history'])} intrări")
+    print(f"DEBUG: Istoric actualizat are {len(session[session_id]['history'])} intrari")
 
-    # Salvează pe disc
+    # Salveaza pe disc
     save_session_to_disk(session_id, session[session_id])
     return True
 
 
-
 def colorize_image(img):
-    """Colorizează imaginea folosind modelul AI"""
+    """Colorizeaza imaginea folosind modelul AI"""
     if colorizer_net is None:
-        raise Exception("Modelul de colorizare nu este încărcat")
+        raise Exception("Modelul de colorizare nu este Incarcat")
 
     scaled = img.astype("float32") / 255.0
     lab = cv2.cvtColor(scaled, cv2.COLOR_BGR2LAB)
@@ -272,7 +349,7 @@ def colorize_image(img):
 
 
 def detect_objects_simple(img):
-    """Detectare obiecte simplificată folosind contururi și caracteristici"""
+    """Detectare obiecte simplificata folosind contururi si caracteristici"""
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     blurred = cv2.GaussianBlur(gray, (5, 5), 0)
     edges = cv2.Canny(blurred, 50, 150)
@@ -285,12 +362,12 @@ def detect_objects_simple(img):
             x, y, w, h = cv2.boundingRect(contour)
             confidence = min(area / 10000, 0.9)  # Pseudo-confidence
 
-            # Clasificare simplă bazată pe formă
+            # Clasificare simpla bazata pe forma
             aspect_ratio = w / h
             if aspect_ratio > 1.5:
                 obj_class = "dreptunghi/vehicul"
             elif 0.8 < aspect_ratio < 1.2:
-                obj_class = "pătrat/obiect"
+                obj_class = "patrat/obiect"
             else:
                 obj_class = "obiect vertical"
 
@@ -300,23 +377,23 @@ def detect_objects_simple(img):
                 'bbox': [x, y, w, h]
             })
 
-    return objects[:10]  # Limitează la 10 obiecte
+    return objects[:10]  # Limiteaza la 10 obiecte
 
 
 active_rgb_filters = set()
 
 
 def apply_filter(img, filter_type, original_img=None, **kwargs):
-    """Aplică filtre pe imagine cu sistem de toggle pentru RGB"""
+    """Aplica filtre pe imagine cu sistem de toggle pentru RGB"""
     print(f"DEBUG: Aplicarea filtrului {filter_type} pe imagine cu dimensiunea {img.shape}")
 
     global active_rgb_filters
     print(f"DEBUG: Filtre RGB active: {active_rgb_filters}")
 
     try:
-        # --- SISTEM TOGGLE PENTRU RGB (se aplică pe imaginea originală) ---
+        # --- SISTEM TOGGLE PENTRU RGB (se aplica pe imaginea originala) ---
         if filter_type in ["red_channel", "green_channel", "blue_channel"]:
-            # Toggle: activează/dezactivează filtrul
+            # Toggle: activeaza/dezactiveaza filtrul
             if filter_type in active_rgb_filters:
                 active_rgb_filters.remove(filter_type)
                 print(f"DEBUG: Filtrul {filter_type} DEZACTIVAT")
@@ -326,14 +403,14 @@ def apply_filter(img, filter_type, original_img=None, **kwargs):
 
             print(f"DEBUG: Filtre RGB active: {active_rgb_filters}")
 
-            # IMPORTANT: Aplicăm toate filtrele RGB active pe imaginea ORIGINALĂ
+            # IMPORTANT: Aplicam toate filtrele RGB active pe imaginea ORIGINALa
             if original_img is not None:
                 return apply_rgb_filters(original_img, active_rgb_filters)
             else:
-                # Fallback - dacă nu avem imaginea originală, folosim cea curentă
+                # Fallback - daca nu avem imaginea originala, folosim cea curenta
                 return apply_rgb_filters(img, active_rgb_filters)
 
-        # --- RESTUL FILTRELOR (se aplică pe imaginea curentă) ---
+        # --- RESTUL FILTRELOR (se aplica pe imaginea curenta) ---
         elif filter_type == "grayscale":
             gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
             return cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
@@ -367,7 +444,7 @@ def apply_filter(img, filter_type, original_img=None, **kwargs):
             if angle == 0:
                 return img
 
-            # Rotiri exacte de 90, 180, 270 fără decupaje
+            # Rotiri exacte de 90, 180, 270 fara decupaje
             if angle % 360 == 90 or angle % 360 == -270:
                 rotated = cv2.rotate(img, cv2.ROTATE_90_CLOCKWISE)
             elif angle % 360 == -90 or angle % 360 == 270:
@@ -375,18 +452,18 @@ def apply_filter(img, filter_type, original_img=None, **kwargs):
             elif abs(angle) % 360 == 180:
                 rotated = cv2.rotate(img, cv2.ROTATE_180)
             else:
-                # Rotire liberă cu warpAffine
+                # Rotire libera cu warpAffine
                 (h, w) = img.shape[:2]
                 center = (w // 2, h // 2)
                 M = cv2.getRotationMatrix2D(center, angle, 1.0)
 
-                # Ajustăm dimensiunea pentru a evita decuparea
+                # Ajustam dimensiunea pentru a evita decuparea
                 cos = np.abs(M[0, 0])
                 sin = np.abs(M[0, 1])
                 new_w = int((h * sin) + (w * cos))
                 new_h = int((h * cos) + (w * sin))
 
-                # Ajustăm matricea pentru a centra imaginea
+                # Ajustam matricea pentru a centra imaginea
                 M[0, 2] += (new_w / 2) - center[0]
                 M[1, 2] += (new_h / 2) - center[1]
 
@@ -429,16 +506,16 @@ def apply_filter(img, filter_type, original_img=None, **kwargs):
             return 255 - img
 
         elif filter_type == "brightness":
-            # Parametru intensitate: poate fi -100..+100 sau 0..200%, depinde de preferințe
-            intensity = kwargs.get('intensity', 0)  # de exemplu 0 = fără modificare
+            # Parametru intensitate: poate fi -100..+100 sau 0..200%, depinde de preferinte
+            intensity = kwargs.get('intensity', 0)  # de exemplu 0 = fara modificare
 
             # Convertim la float pentru calcule
             result = img.astype(np.float32)
 
-            # Ajustăm luminozitatea prin adunare
+            # Ajustam luminozitatea prin adunare
             result += intensity
 
-            # Limităm valorile între 0 și 255
+            # Limitam valorile Intre 0 si 255
             result = np.clip(result, 0, 255).astype(np.uint8)
             return result
 
@@ -459,16 +536,17 @@ def get_last_non_rgb_image_from_history(session_id):
     if not history:
         return None
 
-    # Caută de la sfârșitul istoricului către început
+    # Cauta de la sfârsitul istoricului catre Inceput
     for item in reversed(history):
-        # Verifică dacă numele operației nu conține filtre RGB
+        # Verifica daca numele operatiei nu contine filtre RGB
         name_lower = item['name'].lower()
         if not any(rgb_filter in name_lower for rgb_filter in
-                   ['canal roșu', 'canal verde', 'canal albastru', 'red channel', 'green channel', 'blue channel']):
+                   ['canal rosu', 'canal verde', 'canal albastru', 'red channel', 'green channel', 'blue channel']):
             return item['filepath']
 
-    # Dacă toate sunt RGB, returnează originalul
+    # Daca toate sunt RGB, returneaza originalul
     return session[session_id].get('original_filepath')
+
 
 @app.route("/test_model")
 def test_model():
@@ -477,6 +555,54 @@ def test_model():
         return {"status": "success"}
     except Exception as e:
         return {"status": "error", "message": str(e)}
+
+
+@app.route("/test_model_detailed")
+def test_model_detailed():
+    import time
+    results = []
+
+    try:
+        results.append({"step": "1. Check files", "status": "start"})
+        results.append({
+            "proto_exists": os.path.exists(PROTO),
+            "model_exists": os.path.exists(MODEL),
+            "pts_exists": os.path.exists(PTS),
+            "model_size_mb": os.path.getsize(MODEL) / (1024 * 1024) if os.path.exists(MODEL) else 0
+        })
+
+        results.append({"step": "2. Load prototxt only", "status": "start"})
+        start = time.time()
+        net = cv2.dnn.readNetFromCaffe(PROTO)
+        results.append({"step": "2. Load prototxt only", "status": "success", "time": time.time() - start})
+
+        results.append({"step": "3. Load full model", "status": "start"})
+        start = time.time()
+        net = cv2.dnn.readNetFromCaffe(PROTO, MODEL)
+        results.append({"step": "3. Load full model", "status": "success", "time": time.time() - start})
+
+        results.append({"step": "4. Load pts_in_hull", "status": "start"})
+        start = time.time()
+        pts_in_hull = np.load(PTS)
+        results.append({"step": "4. Load pts_in_hull", "status": "success", "time": time.time() - start})
+
+        results.append({"step": "5. Configure class8_ab", "status": "start"})
+        start = time.time()
+        pts = pts_in_hull.transpose().reshape(2, 313, 1, 1)
+        net.getLayer(net.getLayerId('class8_ab')).blobs = [pts.astype(np.float32)]
+        results.append({"step": "5. Configure class8_ab", "status": "success", "time": time.time() - start})
+
+        results.append({"step": "6. Configure conv8_313_rh", "status": "start"})
+        start = time.time()
+        net.getLayer(net.getLayerId('conv8_313_rh')).blobs = [np.array([2.606], dtype=np.float32)]
+        results.append({"step": "6. Configure conv8_313_rh", "status": "success", "time": time.time() - start})
+
+        return {"status": "success", "results": results}
+
+    except Exception as e:
+        results.append({"step": "ERROR", "message": str(e)})
+        import traceback
+        return {"status": "error", "results": results, "traceback": traceback.format_exc()}
 
 
 @app.route("/check_files")
@@ -488,60 +614,113 @@ def check_files():
             files_info[path] = os.path.getsize(path)
     return jsonify(files_info)
 
+@app.route('/api/debug-models')
+def debug_models():
+    """Debug endpoint pentru modele"""
+    return jsonify({
+        "models_folder": MODELS_FOLDER,
+        "is_zooku": IS_ZOOKU,
+        "files": {
+            "prototxt": {
+                "path": PROTO,
+                "exists": os.path.exists(PROTO),
+                "size": os.path.getsize(PROTO) if os.path.exists(PROTO) else 0
+            },
+            "caffemodel": {
+                "path": MODEL,
+                "exists": os.path.exists(MODEL),
+                "size": os.path.getsize(MODEL) if os.path.exists(MODEL) else 0
+            },
+            "pts_in_hull": {
+                "path": PTS,
+                "exists": os.path.exists(PTS),
+                "size": os.path.getsize(PTS) if os.path.exists(PTS) else 0
+            }
+        },
+        "loading_status": model_loading_status
+    })
 
+@app.route("/api/model-logs")
+def get_model_logs():
+    return jsonify({
+        "status": model_loading_status,
+        "logs": model_logs
+    })
+
+LOG_FILE = "debug_log.jsonl"
+
+@app.route("/debug-save", methods=["GET", "POST"])
+def debug_save():
+    if request.method == "POST":
+        data = request.json
+        if not data:
+            return jsonify({"success": False, "error": "No data sent"}), 400
+
+        with open(LOG_FILE, "a", encoding="utf-8") as f:
+            f.write(json.dumps(data, ensure_ascii=False) + "\n")
+
+        return jsonify({"success": True})
+
+    # GET doar pentru verificare/log vizual în browser
+    try:
+        with open(LOG_FILE, "r", encoding="utf-8") as f:
+            logs = f.read()
+        return f"<pre>{logs}</pre>"
+    except FileNotFoundError:
+        return "Nu exista log-uri."
 
 
 @app.route('/api/filter', methods=['POST'])
 def apply_image_filter():
-    """Aplică un filtru pe imaginea CURENTĂ și salvează rezultatul"""
+    """Aplica un filtru pe imaginea CURENTa si salveaza rezultatul"""
     data = request.json
     session_id = data.get('session_id')
     filter_type = data.get('filter_type')
     filter_params = data.get('params', {})
-    #print(f"DEBUG: Aplicare filtru {filter_type} pentru sesiunea {session_id}")
+    # print(f"DEBUG: Aplicare filtru {filter_type} pentru sesiunea {session_id}")
 
-    # Încarcă sesiunea dacă nu există în memorie
+    # Incarca sesiunea daca nu exista In memorie
     disk_session = load_session_from_disk(session_id)
     if disk_session:
         session[session_id] = disk_session
     else:
-        return jsonify({'error': 'Sesiune invalidă'}), 400
+        return jsonify({'error': 'Sesiune invalida'}), 400
 
     try:
         # Pentru filtrele RGB, folosim ultima imagine non-RGB din istoric
         if filter_type in ["red_channel", "green_channel", "blue_channel"]:
             base_image_path = get_last_non_rgb_image_from_history(session_id)
             if not base_image_path or not os.path.exists(base_image_path):
-                return jsonify({'error': 'Nu s-a găsit imaginea de bază pentru filtrele RGB'}), 400
+                return jsonify({'error': 'Nu s-a gasit imaginea de baza pentru filtrele RGB'}), 400
 
-            #print(f"DEBUG: Aplicare filtru RGB pe ultima imagine non-RGB: {base_image_path}")
+            # print(f"DEBUG: Aplicare filtru RGB pe ultima imagine non-RGB: {base_image_path}")
             img = cv2.imread(base_image_path)
             original_img = img.copy()  # Pentru parametrul original_img
         else:
-            # Pentru alte filtre, folosim imaginea curentă
+            # Pentru alte filtre, folosim imaginea curenta
             current_filepath = session[session_id]['filepath']
-            #print(f"DEBUG: Aplicare filtru normal pe imaginea curentă: {current_filepath}")
+            # print(f"DEBUG: Aplicare filtru normal pe imaginea curenta: {current_filepath}")
 
             if not os.path.exists(current_filepath):
-                return jsonify({'error': 'Fișierul curent nu există'}), 400
+                return jsonify({'error': 'Fisierul curent nu exista'}), 400
 
             img = cv2.imread(current_filepath)
             original_img = None  # Nu e necesar pentru filtrele normale
 
         if img is None:
-            return jsonify({'error': 'Imaginea nu poate fi citită'}), 400
+            return jsonify({'error': 'Imaginea nu poate fi citita'}), 400
 
-        # Aplică filtrul cu imaginea de bază dacă e necesar
+        # Aplica filtrul cu imaginea de baza daca e necesar
         filtered = apply_filter(img, filter_type, original_img=original_img, **filter_params)
 
-        # Salvează imaginea filtrată
+        # Salveaza imaginea filtrata
         timestamp = int(time.time())
         filtered_filename = f"{session_id}_{filter_type}_{timestamp}.png"
         filtered_path = os.path.abspath(os.path.join(UPLOAD_FOLDER, filtered_filename))
         cv2.imwrite(filtered_path, filtered)
-        #print(f"DEBUG: Imagine filtrată salvată: {filtered_path}")
+        # print(f"DEBUG: Imagine filtrata salvata: {filtered_path}")
 
-        # Actualizează sesiunea + istoricul
+        # Actualizeaza sesiunea + istoricul
         filter_name = filter_type.replace('_', ' ').title()
         update_session_data(session_id, filtered_path, f'Filtru {filter_name}')
         session[session_id]['filepath'] = filtered_path
@@ -558,10 +737,10 @@ def apply_image_filter():
         return jsonify({'error': f'Eroare la aplicarea filtrului: {str(e)}'}), 500
 
 
-# Funcție helper pentru resetarea filtrelor RGB
+# Functie helper pentru resetarea filtrelor RGB
 @app.route('/api/rgb/reset', methods=['POST'])
 def reset_rgb_filters_api():
-    """Resetează toate filtrele RGB și revine la imaginea originală"""
+    """Reseteaza toate filtrele RGB si revine la imaginea originala"""
     data = request.json
     session_id = data.get('session_id')
 
@@ -570,13 +749,13 @@ def reset_rgb_filters_api():
         if disk_session:
             session[session_id] = disk_session
         else:
-            return jsonify({'error': 'Sesiune invalidă'}), 400
+            return jsonify({'error': 'Sesiune invalida'}), 400
 
     try:
-        # Resetează filtrele RGB
+        # Reseteaza filtrele RGB
         reset_rgb_filters()
 
-        # Revine la imaginea originală
+        # Revine la imaginea originala
         original_filepath = session[session_id].get('original_filepath')
         if original_filepath and os.path.exists(original_filepath):
             session[session_id]['filepath'] = original_filepath
@@ -591,16 +770,16 @@ def reset_rgb_filters_api():
                 'message': 'Filtre RGB resetate'
             })
         else:
-            return jsonify({'error': 'Imaginea originală nu există'}), 400
+            return jsonify({'error': 'Imaginea originala nu exista'}), 400
 
     except Exception as e:
         return jsonify({'error': f'Eroare la resetarea filtrelor RGB: {str(e)}'}), 500
 
 
-# Funcție pentru a obține statusul filtrelor RGB
+# Functie pentru a obtine statusul filtrelor RGB
 @app.route('/api/rgb/status', methods=['POST'])
 def get_rgb_status_api():
-    """Obține statusul curent al filtrelor RGB"""
+    """Obtine statusul curent al filtrelor RGB"""
     return jsonify({
         'success': True,
         'status': get_rgb_status()
@@ -608,27 +787,27 @@ def get_rgb_status_api():
 
 
 def apply_rgb_filters(img, active_filters):
-    """Aplică filtrele RGB active pe imaginea originală"""
+    """Aplica filtrele RGB active pe imaginea originala"""
     if not active_filters:
-        return img  # Dacă nu sunt filtre active, returnează imaginea originală
+        return img  # Daca nu sunt filtre active, returneaza imaginea originala
 
-    result = np.zeros_like(img)  # Începem cu negru
+    result = np.zeros_like(img)  # Incepem cu negru
 
-    # Adunăm canalele active din imaginea originală
+    # Adunam canalele active din imaginea originala
     if "red_channel" in active_filters:
-        result[:, :, 2] = img[:, :, 2]  # BGR: Red este pe poziția 2
+        result[:, :, 2] = img[:, :, 2]  # BGR: Red este pe pozitia 2
 
     if "green_channel" in active_filters:
-        result[:, :, 1] = img[:, :, 1]  # BGR: Green este pe poziția 1
+        result[:, :, 1] = img[:, :, 1]  # BGR: Green este pe pozitia 1
 
     if "blue_channel" in active_filters:
-        result[:, :, 0] = img[:, :, 0]  # BGR: Blue este pe poziția 0
+        result[:, :, 0] = img[:, :, 0]  # BGR: Blue este pe pozitia 0
 
     return result
 
 
 def get_rgb_status():
-    """Returnează starea curentă a filtrelor RGB"""
+    """Returneaza starea curenta a filtrelor RGB"""
     return {
         'red_active': 'red_channel' in active_rgb_filters,
         'green_active': 'green_channel' in active_rgb_filters,
@@ -639,19 +818,19 @@ def get_rgb_status():
 
 
 def reset_rgb_filters():
-    """Resetează toate filtrele RGB"""
+    """Reseteaza toate filtrele RGB"""
     global active_rgb_filters
     active_rgb_filters.clear()
     print("DEBUG: Toate filtrele RGB au fost resetate")
 
 
 def apply_current_rgb_filters(img):
-    """Aplică filtrele RGB curente pe o imagine nouă (util pentru refresh)"""
+    """Aplica filtrele RGB curente pe o imagine noua (util pentru refresh)"""
     return apply_rgb_filters(img, active_rgb_filters)
 
 
 def upscale_image(img, scale_factor=2):
-    """Mărește imaginea cu factorul specificat"""
+    """Mareste imaginea cu factorul specificat"""
     height, width = img.shape[:2]
     new_width = int(width * scale_factor)
     new_height = int(height * scale_factor)
@@ -666,52 +845,52 @@ def index():
 
 @app.route('/api/status')
 def get_status():
-    """Returnează statusul încărcării modelelor"""
+    """Returneaza statusul Incarcarii modelelor"""
     return jsonify(model_loading_status)
 
 
 @app.route('/uploads/<filename>')
 def serve_image(filename):
-    """Servește imaginile din directorul uploads - FIXED pentru Flask 2.3.3"""
+    """Serveste imaginile din directorul uploads - FIXED pentru Flask 2.3.3"""
     try:
         print(f"DEBUG: Servire imagine: {filename}")
         return send_from_directory(UPLOAD_FOLDER, filename, as_attachment=False)
     except Exception as e:
         print(f"Eroare la servirea imaginii {filename}: {e}")
-        return jsonify({'error': 'Imaginea nu a fost găsită'}), 404
+        return jsonify({'error': 'Imaginea nu a fost gasita'}), 404
 
 
 @app.route('/api/upload', methods=['POST'])
 def upload_image():
-    """Încarcă o imagine și o salvează pe disc"""
+    """Incarca o imagine si o salveaza pe disc"""
     if 'image' not in request.files:
-        return jsonify({'error': 'Nu s-a găsit fișierul'}), 400
+        return jsonify({'error': 'Nu s-a gasit fisierul'}), 400
 
     file = request.files['image']
     if file.filename == '':
-        return jsonify({'error': 'Nu s-a selectat fișierul'}), 400
+        return jsonify({'error': 'Nu s-a selectat fisierul'}), 400
 
     try:
-        # Creează un ID unic pentru fișier
+        # Creeaza un ID unic pentru fisier
         session_id = str(uuid.uuid4())
         filename = secure_filename(f"{session_id}_original.png")
         filepath = os.path.join(UPLOAD_FOLDER, filename)
 
-        # Salvează fișierul pe disc
+        # Salveaza fisierul pe disc
         file.save(filepath)
-        print(f"DEBUG: Fișier salvat: {filepath}")
+        print(f"DEBUG: Fisier salvat: {filepath}")
 
-        # Citește imaginea cu OpenCV pentru a obține dimensiunile
+        # Citeste imaginea cu OpenCV pentru a obtine dimensiunile
         img = cv2.imread(filepath)
         if img is None:
-            return jsonify({'error': 'Imaginea nu poate fi citită'}), 400
+            return jsonify({'error': 'Imaginea nu poate fi citita'}), 400
 
         height, width = img.shape[:2]
 
-        # Inițializează sesiunea cu istoricul
+        # Initializeaza sesiunea cu istoricul
         session_data = {
-            'filepath': filepath,  # imagine curentă
-            'original_filepath': filepath,  # imagine originală
+            'filepath': filepath,  # imagine curenta
+            'original_filepath': filepath,  # imagine originala
             'history': [{
                 'name': 'Original',
                 'filepath': filepath,
@@ -721,9 +900,9 @@ def upload_image():
 
         session[session_id] = session_data
 
-        # Salvează sesiunea pe disc
+        # Salveaza sesiunea pe disc
         save_session_to_disk(session_id, session_data)
-        print(f"DEBUG: Sesiune inițializată pentru {session_id}")
+        print(f"DEBUG: Sesiune initializata pentru {session_id}")
 
         return jsonify({
             'success': True,
@@ -740,45 +919,45 @@ def upload_image():
 
 @app.route('/api/colorize', methods=['POST'])
 def colorize():
-    """Colorizează imaginea CURENTĂ și salvează rezultatul"""
+    """Colorizeaza imaginea CURENTa si salveaza rezultatul"""
     data = request.json
     session_id = data.get('session_id')
     print(f"DEBUG: Colorize pentru sesiunea {session_id}")
 
-    # Încarcă sesiunea dacă nu există în memorie
-    #if session_id not in session:
+    # Incarca sesiunea daca nu exista In memorie
+    # if session_id not in session:
     disk_session = load_session_from_disk(session_id)
     if disk_session:
         session[session_id] = disk_session
     else:
-        return jsonify({'error': 'Sesiune invalidă'}), 400
+        return jsonify({'error': 'Sesiune invalida'}), 400
 
     if colorizer_net is None:
-        return jsonify({'error': 'Modelul de colorizare nu este încărcat'}), 500
+        return jsonify({'error': 'Modelul de colorizare nu este Incarcat'}), 500
 
     try:
-        # Folosește ultima imagine procesată din sesiune
+        # Foloseste ultima imagine procesata din sesiune
         current_filepath = session[session_id]['filepath']
-        print(f"DEBUG: Colorizez imaginea curentă: {current_filepath}")
+        print(f"DEBUG: Colorizez imaginea curenta: {current_filepath}")
 
         if not os.path.exists(current_filepath):
-            return jsonify({'error': 'Fișierul curent nu există'}), 400
+            return jsonify({'error': 'Fisierul curent nu exista'}), 400
 
         img = cv2.imread(current_filepath)
         if img is None:
-            return jsonify({'error': 'Imaginea nu poate fi citită'}), 400
+            return jsonify({'error': 'Imaginea nu poate fi citita'}), 400
 
-        # Aplică colorizarea AI
+        # Aplica colorizarea AI
         colorized = colorize_image(img)
 
-        # Salvează imaginea colorizată
+        # Salveaza imaginea colorizata
         timestamp = int(time.time())
         colorized_filename = f"{session_id}_colorized_{timestamp}.png"
         colorized_path = os.path.abspath(os.path.join(UPLOAD_FOLDER, colorized_filename))
         cv2.imwrite(colorized_path, colorized)
-        print(f"DEBUG: Imagine colorizată salvată: {colorized_path}")
+        print(f"DEBUG: Imagine colorizata salvata: {colorized_path}")
 
-        # Actualizează sesiunea + istoricul
+        # Actualizeaza sesiunea + istoricul
         update_session_data(session_id, colorized_path, 'Colorare AI')
         session[session_id]['filepath'] = colorized_path
         print(session[session_id]['filepath'])
@@ -793,32 +972,33 @@ def colorize():
         print(f"DEBUG: Eroare la colorizare: {e}")
         return jsonify({'error': f'Eroare la colorizare: {str(e)}'}), 500
 
+
 @app.route('/api/detect', methods=['POST'])
 def detect_objects():
-    """Detectează obiectele din imaginea CURENTĂ"""
+    """Detecteaza obiectele din imaginea CURENTa"""
     data = request.json
     session_id = data.get('session_id')
 
-    #if session_id not in session:
+    # if session_id not in session:
     disk_session = load_session_from_disk(session_id)
     if disk_session:
         session[session_id] = disk_session
     else:
-        return jsonify({'error': 'Sesiune invalidă'}), 400
+        return jsonify({'error': 'Sesiune invalida'}), 400
 
     try:
-        # Folosește imaginea curentă
+        # Foloseste imaginea curenta
         current_filepath = session[session_id]['filepath']
         if not os.path.exists(current_filepath):
-            return jsonify({'error': 'Fișierul curent nu există'}), 400
+            return jsonify({'error': 'Fisierul curent nu exista'}), 400
 
         img = cv2.imread(current_filepath)
         if img is None:
-            return jsonify({'error': 'Imaginea nu poate fi citită'}), 400
+            return jsonify({'error': 'Imaginea nu poate fi citita'}), 400
 
         objects = detect_objects_simple(img)
 
-        # Desenează bounding boxes pe imaginea curentă
+        # Deseneaza bounding boxes pe imaginea curenta
         result_img = img.copy()
         for obj in objects:
             x, y, w, h = obj['bbox']
@@ -827,13 +1007,13 @@ def detect_objects():
             cv2.putText(result_img, label, (x, y - 10),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
 
-        # Salvează rezultatul
+        # Salveaza rezultatul
         timestamp = int(time.time())
         detected_filename = f"{session_id}_detected_{timestamp}.png"
         detected_path = os.path.join(UPLOAD_FOLDER, detected_filename)
         cv2.imwrite(detected_path, result_img)
 
-        # Actualizează sesiunea
+        # Actualizeaza sesiunea
         update_session_data(session_id, detected_path, f'Detectare {len(objects)} obiecte')
 
         return jsonify({
@@ -848,37 +1028,37 @@ def detect_objects():
 
 @app.route('/api/upscale', methods=['POST'])
 def upscale():
-    """Mărește rezoluția imaginii CURENTE"""
+    """Mareste rezolutia imaginii CURENTE"""
     data = request.json
     session_id = data.get('session_id')
     scale_factor = float(data.get('scale_factor', 2.0))
 
-    #if session_id not in session:
+    # if session_id not in session:
     disk_session = load_session_from_disk(session_id)
     if disk_session:
         session[session_id] = disk_session
     else:
-        return jsonify({'error': 'Sesiune invalidă'}), 400
+        return jsonify({'error': 'Sesiune invalida'}), 400
 
     try:
-        # Folosește imaginea curentă
+        # Foloseste imaginea curenta
         current_filepath = session[session_id]['filepath']
         if not os.path.exists(current_filepath):
-            return jsonify({'error': 'Fișierul curent nu există'}), 400
+            return jsonify({'error': 'Fisierul curent nu exista'}), 400
 
         img = cv2.imread(current_filepath)
         if img is None:
-            return jsonify({'error': 'Imaginea nu poate fi citită'}), 400
+            return jsonify({'error': 'Imaginea nu poate fi citita'}), 400
 
         upscaled = upscale_image(img, scale_factor)
 
-        # Salvează rezultatul
+        # Salveaza rezultatul
         timestamp = int(time.time())
         upscaled_filename = f"{session_id}_upscaled_{scale_factor}x_{timestamp}.png"
         upscaled_path = os.path.join(UPLOAD_FOLDER, upscaled_filename)
         cv2.imwrite(upscaled_path, upscaled)
 
-        # Actualizează sesiunea
+        # Actualizeaza sesiunea
         update_session_data(session_id, upscaled_path, f'Upscale {scale_factor}x')
 
         return jsonify({
@@ -894,24 +1074,24 @@ def upscale():
 
 @app.route('/api/reset', methods=['POST'])
 def reset_image():
-    """Resetează la imaginea originală"""
+    """Reseteaza la imaginea originala"""
     data = request.json
     session_id = data.get('session_id')
 
-    #if session_id not in session:
+    # if session_id not in session:
     disk_session = load_session_from_disk(session_id)
     if disk_session:
         session[session_id] = disk_session
     else:
-        return jsonify({'error': 'Sesiune invalidă'}), 400
+        return jsonify({'error': 'Sesiune invalida'}), 400
 
     try:
-        # Obține calea imaginii originale
+        # Obtine calea imaginii originale
         original_filepath = session[session_id].get('original_filepath')
         if not original_filepath or not os.path.exists(original_filepath):
-            return jsonify({'error': 'Imaginea originală nu există'}), 400
+            return jsonify({'error': 'Imaginea originala nu exista'}), 400
 
-        # Resetează imaginea curentă la original
+        # Reseteaza imaginea curenta la original
         session[session_id]['filepath'] = original_filepath
         session[session_id]['history'] = [{
             'name': 'Original',
@@ -919,10 +1099,10 @@ def reset_image():
             'timestamp': time.time()
         }]
 
-        # Salvează sesiunea actualizată
+        # Salveaza sesiunea actualizata
         save_session_to_disk(session_id, session[session_id])
 
-        # Citește imaginea pentru dimensiuni
+        # Citeste imaginea pentru dimensiuni
         img = cv2.imread(original_filepath)
         height, width = img.shape[:2]
 
@@ -939,23 +1119,23 @@ def reset_image():
 
 @app.route('/api/history', methods=['POST'])
 def get_history():
-    """Obține istoricul imaginilor din sesiune"""
+    """Obtine istoricul imaginilor din sesiune"""
     data = request.json
     session_id = data.get('session_id')
     print(f"DEBUG: Cerere istoric pentru sesiunea {session_id}")
 
-    #if session_id not in session:
+    # if session_id not in session:
     disk_session = load_session_from_disk(session_id)
     if disk_session:
         session[session_id] = disk_session
     else:
-        return jsonify({'error': 'Sesiune invalidă'}), 400
+        return jsonify({'error': 'Sesiune invalida'}), 400
 
     try:
         history = session[session_id].get('history', [])
-        print(f"DEBUG: Istoric găsit cu {len(history)} intrări")
+        print(f"DEBUG: Istoric gasit cu {len(history)} intrari")
 
-        # Adaugă URL-uri pentru frontend și verifică existența fișierelor
+        # Adauga URL-uri pentru frontend si verifica existenta fisierelor
         formatted_history = []
         for item in history:
             if os.path.exists(item['filepath']):
@@ -965,7 +1145,7 @@ def get_history():
                     'timestamp': item.get('timestamp', 0)
                 })
 
-        print(f"DEBUG: Istoric formatat cu {len(formatted_history)} intrări valide")
+        print(f"DEBUG: Istoric formatat cu {len(formatted_history)} intrari valide")
 
         return jsonify({
             'success': True,
@@ -973,8 +1153,8 @@ def get_history():
         })
 
     except Exception as e:
-        print(f"DEBUG: Eroare la obținerea istoricului: {e}")
-        return jsonify({'error': f'Eroare la obținerea istoricului: {str(e)}'}), 500
+        print(f"DEBUG: Eroare la obtinerea istoricului: {e}")
+        return jsonify({'error': f'Eroare la obtinerea istoricului: {str(e)}'}), 500
 
 
 @app.route('/api/history/goto', methods=['POST'])
@@ -984,12 +1164,12 @@ def goto_history():
     session_id = data.get('session_id')
     index = int(data.get('index', 0))
 
-    #if session_id not in session:
+    # if session_id not in session:
     disk_session = load_session_from_disk(session_id)
     if disk_session:
         session[session_id] = disk_session
     else:
-        return jsonify({'error': 'Sesiune invalidă'}), 400
+        return jsonify({'error': 'Sesiune invalida'}), 400
 
     try:
         history = session[session_id].get('history', [])
@@ -997,11 +1177,11 @@ def goto_history():
             selected_filepath = history[index]['filepath']
 
             if os.path.exists(selected_filepath):
-                # Actualizează imaginea curentă
-                #session[session_id]['filepath'] = selected_filepath
+                # Actualizeaza imaginea curenta
+                # session[session_id]['filepath'] = selected_filepath
                 save_session_to_disk(session_id, session[session_id])
 
-                # Citește imaginea pentru dimensiuni
+                # Citeste imaginea pentru dimensiuni
                 img = cv2.imread(selected_filepath)
                 height, width = img.shape[:2]
 
@@ -1012,12 +1192,12 @@ def goto_history():
                     'height': height
                 })
             else:
-                return jsonify({'error': 'Fișierul din istoric nu mai există'}), 400
+                return jsonify({'error': 'Fisierul din istoric nu mai exista'}), 400
         else:
             return jsonify({'error': 'Index invalid'}), 400
 
     except Exception as e:
-        return jsonify({'error': f'Eroare la navigarea în istoric: {str(e)}'}), 500
+        return jsonify({'error': f'Eroare la navigarea In istoric: {str(e)}'}), 500
 
 
 @app.route('/api/history/undo', methods=['POST'])
@@ -1030,7 +1210,7 @@ def undo_history():
     redo_stack = session[session_id].get('redo', [])
 
     if len(history) <= 1:
-        return jsonify({'error': 'Nu există istoric pentru undo'}), 400
+        return jsonify({'error': 'Nu exista istoric pentru undo'}), 400
 
     last_state = history.pop()
     redo_stack.append(last_state)
@@ -1045,6 +1225,7 @@ def undo_history():
         'image': f"/uploads/{os.path.basename(history[-1]['filepath'])}"
     })
 
+
 @app.route('/api/history/redo', methods=['POST'])
 def redo_history():
     data = request.json
@@ -1055,7 +1236,7 @@ def redo_history():
     redo_stack = session[session_id].get('redo', [])
 
     if not redo_stack:
-        return jsonify({'error': 'Nu există istoric pentru redo'}), 400
+        return jsonify({'error': 'Nu exista istoric pentru redo'}), 400
 
     state = redo_stack.pop()
     history.append(state)
@@ -1073,7 +1254,7 @@ def redo_history():
 
 @app.route('/api/history/clear', methods=['POST'])
 def clear_history():
-    """Șterge istoricul și resetează la imaginea originală"""
+    """sterge istoricul si reseteaza la imaginea originala"""
     data = request.json
     session_id = data.get('session_id')
 
@@ -1081,10 +1262,10 @@ def clear_history():
     if disk_session:
         session[session_id] = disk_session
     else:
-        return jsonify({'error': 'Sesiune invalidă'}), 400
+        return jsonify({'error': 'Sesiune invalida'}), 400
 
     try:
-        # Șterge fișierele procesate (păstrează doar originalul)
+        # sterge fisierele procesate (pastreaza doar originalul)
         history = session[session_id].get('history', [])
         original_filepath = session[session_id].get('original_filepath')
 
@@ -1093,9 +1274,9 @@ def clear_history():
                 try:
                     os.remove(item['filepath'])
                 except Exception as e:
-                    print(f"Nu am putut șterge fișierul {item['filepath']}: {e}")
+                    print(f"Nu am putut sterge fisierul {item['filepath']}: {e}")
 
-        # Resetează la original
+        # Reseteaza la original
         session[session_id]['filepath'] = original_filepath
         session[session_id]['history'] = [{
             'name': 'Original',
@@ -1103,27 +1284,26 @@ def clear_history():
             'timestamp': time.time()
         }]
 
-        # Salvează sesiunea
+        # Salveaza sesiunea
         save_session_to_disk(session_id, session[session_id])
 
-        # Citește dimensiunile imaginii pentru frontend
+        # Citeste dimensiunile imaginii pentru frontend
         img = cv2.imread(original_filepath)
         height, width = img.shape[:2]
 
         return jsonify({
             'success': True,
-            'message': 'Istoric șters și resetat la imaginea originală',
+            'message': 'Istoric sters si resetat la imaginea originala',
             'image': f"/uploads/{os.path.basename(original_filepath)}",
             'width': width,
             'height': height
         })
 
     except Exception as e:
-        return jsonify({'error': f'Eroare la ștergerea istoricului: {str(e)}'}), 500
+        return jsonify({'error': f'Eroare la stergerea istoricului: {str(e)}'}), 500
 
 
-
-# HTML Template îmbunătățit cu debugging
+# HTML Template Imbunatatit cu debugging
 HTML_TEMPLATE = """<!DOCTYPE html>
 <html lang="ro">
 <head>
@@ -1392,26 +1572,26 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         </div>
 
         <div class="status-bar">
-            <div id="status-text">Se încarcă modelele AI...</div>
+            <div id="status-text">Se Incarca modelele AI...</div>
         </div>
 
         <div class="main-content">
             <!-- Sidebar stânga -->
             <div class="sidebar">
-                <div class="section-title">Încărcare Imagine</div>
+                <div class="section-title">Incarcare Imagine</div>
                 <input type="file" id="image-input" accept="image/*" style="display: none;">
                 <button class="btn" onclick="document.getElementById('image-input').click()">
-                    Selectează Imagine
+                    Selecteaza Imagine
                 </button>
 
-                <div class="section-title" style="margin-top: 30px;">Procesare Principală</div>
+                <div class="section-title" style="margin-top: 30px;">Procesare Principala</div>
                 <div class="controls-grid">
-                    <button class="btn" id="colorize-btn" onclick="colorizeImage()">Colorează AI</button>
-                    <button class="btn" id="detect-btn" onclick="detectObjects()">Detectează Obiecte</button>
+                    <button class="btn" id="colorize-btn" onclick="colorizeImage()">Coloreaza AI</button>
+                    <button class="btn" id="detect-btn" onclick="detectObjects()">Detecteaza Obiecte</button>
                 </div>
 
                 <div class="input-group">
-                    <label for="scale-select">Mărire Rezoluție:</label>
+                    <label for="scale-select">Marire Rezolutie:</label>
                     <select id="scale-select">
                         <option value="1.5">1.5x</option>
                         <option value="2" selected>2x</option>
@@ -1419,27 +1599,31 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                         <option value="4">4x</option>
                     </select>
                 </div>
-                <button class="btn" id="upscale-btn" onclick="upscaleImage()">Mărește Rezoluția</button>
+                <button class="btn" id="upscale-btn" onclick="upscaleImage()">Mareste Rezolutia</button>
 
-                <div class="section-title" style="margin-top: 30px;">Acțiuni</div>
+                <div class="section-title" style="margin-top: 30px;">Actiuni</div>
                 <div class="controls-grid">
-                    <button class="btn btn-success" id="save-btn" onclick="saveImage()">Salvează</button>
+                    <div style="position: relative; display: inline-block;">
+                        <button type="button" class="btn btn-success" id="save-btn" onclick="toggleMenu()">Salveaza</button>
+                        <div id="format-menu" class="dropdown-content" style="display: none; position: absolute; top: 100%; left: 0; background: white; border: 1px solid #ccc; box-shadow: 0 2px 8px rgba(0,0,0,0.15); border-radius: 5px; z-index: 1000; min-width: 120px; margin-top: 5px;">
+                            <a href="#" onclick="saveImage('png'); return false;" style="display: block; padding: 8px 12px; color: #333; text-decoration: none;" onmouseover="this.style.background='#f5f5f5'" onmouseout="this.style.background='white'">PNG</a>
+                            <a href="#" onclick="saveImage('jpeg'); return false;" style="display: block; padding: 8px 12px; color: #333; text-decoration: none;" onmouseover="this.style.background='#f5f5f5'" onmouseout="this.style.background='white'">JPEG</a>
+                            <a href="#" onclick="saveImage('jpg'); return false;" style="display: block; padding: 8px 12px; color: #333; text-decoration: none;" onmouseover="this.style.background='#f5f5f5'" onmouseout="this.style.background='white'">JPG</a>
+                            <a href="#" onclick="saveImage('gif'); return false;" style="display: block; padding: 8px 12px; color: #333; text-decoration: none;" onmouseover="this.style.background='#f5f5f5'" onmouseout="this.style.background='white'">GIF</a>
+                            <a href="#" onclick="saveImage('webp'); return false;" style="display: block; padding: 8px 12px; color: #333; text-decoration: none;" onmouseover="this.style.background='#f5f5f5'" onmouseout="this.style.background='white'">WEBP</a>
+                        </div>
+                    </div>
                     <button class="btn btn-danger" onclick="resetImage()">Reset</button>
                 </div>
-
-                <div class="debug-info" id="debug-info">
-                    Debug: Nicio sesiune activă
-                </div>
             </div>
-
             <!-- Container central - Imagine -->
             <div class="image-container">
                 <div class="image-display" id="image-display">
                     <div class="upload-area">
-                        <h3>Glisează imaginea aici</h3>
-                        <p>sau folosește butonul "Selectează Imagine"</p>
+                        <h3>Gliseaza imaginea aici</h3>
+                        <p>sau foloseste butonul "Selecteaza Imagine"</p>
                         <p style="font-size: 12px; margin-top: 10px;">
-                            ÎMBUNĂTĂȚIRI: Filtre cumulative + Istoric persistent
+                            IMBUNaTatIRI: Filtre cumulative + Istoric persistent
                         </p>
                     </div>
                 </div>
@@ -1456,7 +1640,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                 <div class="tab-content active" id="filters-tab">
                     <div class="section-title">Filtre Culoare</div>
                     <div class="filter-grid">
-                        <button class="btn btn-small" onclick="applyFilter('red_channel')">Canal Roșu</button>
+                        <button class="btn btn-small" onclick="applyFilter('red_channel')">Canal Rosu</button>
                         <button class="btn btn-small" onclick="applyFilter('green_channel')">Canal Verde</button>
                         <button class="btn btn-small" onclick="applyFilter('blue_channel')">Canal Albastru</button>
                         <button class="btn btn-small" onclick="applyFilter('grayscale')">Grayscale</button>
@@ -1470,7 +1654,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                         <button class="btn btn-small" onclick="applyFilter('negative')">Negativ</button>
                         <button class="btn btn-small" onclick="applyFilter('edge_detection')">Detectare Margini</button>
                         <button class="btn btn-small" onclick="applyFilter('emboss')">Emboss</button>
-                        <button class="btn btn-small" onclick="applyFilter('sharpen')">Ascuțire</button>
+                        <button class="btn btn-small" onclick="applyFilter('sharpen')">Ascutire</button>
                     </div>
 
                     <div class="section-title" style="margin-top: 20px;">Blur Control</div>
@@ -1479,25 +1663,25 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                         <input type="range" id="blur-intensity" min="1" max="50" value="15">
                         <span id="blur-value">15</span>
                     </div>
-                    <button class="btn btn-small" onclick="applyBlur()">Aplică Blur</button>
-                    
+                    <button class="btn btn-small" onclick="applyBlur()">Aplica Blur</button>
+
                     <div class="section-title" style="margin-top: 20px;">Luminozitate</div>
                     <div class="input-group">
                         <label for="brightness-intensity">Intensitate:</label>
                         <input type="range" id="brightness-intensity" min="-100" max="100" value="0">
                         <span id="brightness-value">0</span>
                     </div>
-                    <button class="btn btn-small" onclick="applyBrightness()">Aplică Luminozitate</button>
-                    
-                    <!-- Font Awesome (include in <head> pentru a fi sigur că e încărcat) -->
+                    <button class="btn btn-small" onclick="applyBrightness()">Aplica Luminozitate</button>
+
+                    <!-- Font Awesome (include in <head> pentru a fi sigur ca e Incarcat) -->
                     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
-                    
+
                     <div class="section-title" style="margin-top: 20px;">Rotire Imagine</div>
                     <div style="display: flex; gap: 10px; margin-top: 10px; align-items: center;">
-                        <button class="btn btn-secondary btn-small" onclick="rotateImage(-90)" title="Răsucește stânga">
+                        <button class="btn btn-secondary btn-small" onclick="rotateImage(-90)" title="Rasuceste stânga">
                             <i class="fas fa-undo"></i>
                         </button>
-                        <button class="btn btn-secondary btn-small" onclick="rotateImage(90)" title="Răsucește dreapta">
+                        <button class="btn btn-secondary btn-small" onclick="rotateImage(90)" title="Rasuceste dreapta">
                             <i class="fas fa-redo"></i>
                         </button>
                     </div>
@@ -1509,13 +1693,13 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                     <div class="section-title">Istoric Efecte</div>
                     <div class="history-list" id="history-list">
                         <div style="padding: 20px; text-align: center; color: #666;">
-                            Nu există istoric
+                            Nu exista istoric
                         </div>
                     </div>
-                
+
                     <div style="margin-top: 10px; display: flex; gap: 10px; flex-wrap: wrap;">
                         <button class="btn btn-danger btn-small" onclick="clearHistory()">
-                            <i class="fas fa-trash-alt"></i> Șterge Istoric
+                            <i class="fas fa-trash-alt"></i> sterge Istoric
                         </button>
                         <button class="btn btn-secondary btn-small" onclick="undoHistory()">
                             <i class="fas fa-undo"></i> Undo
@@ -1525,7 +1709,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                         </button>
                     </div>
                 </div>
-                <!-- Font Awesome (dacă nu îl ai deja inclus) -->
+                <!-- Font Awesome (daca nu Il ai deja inclus) -->
                 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
             </div>
         </div>
@@ -1549,7 +1733,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             blurSlider.addEventListener('input', function() {
                 blurValue.textContent = this.value;
             });
-        
+
             // Slider Luminozitate
             const brightnessSlider = document.getElementById('brightness-intensity');
             const brightnessValue = document.getElementById('brightness-value');
@@ -1564,23 +1748,27 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             // Rotire imagine
             const rotateLeftBtn = document.getElementById('rotate-left');
             const rotateRightBtn = document.getElementById('rotate-right');
-        
+
             rotateLeftBtn.addEventListener('click', () => {
                 rotateImage(-90);
             });
-        
+
             rotateRightBtn.addEventListener('click', () => {
                 rotateImage(90);
             });
             // Input imagine
         }
 
-        
+
 
         function updateDebugInfo(message) {
-            document.getElementById('debug-info').textContent = `Debug: ${message}`;
+            const debugDiv = document.getElementById('debug-info');
+            if (debugDiv) {
+                debugDiv.textContent = `Debug: ${message}`;
+            } else {
+                console.warn(`Debug info element not found. Message: ${message}`);
+            }
         }
-
         function showNotification(message, type = 'info') {
             console.log(`Notification: ${message} (${type})`);
             const notification = document.getElementById('notification');
@@ -1592,10 +1780,31 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                 notification.classList.remove('show');
             }, 3000);
         }
+        function toggleMenu() {
+            const menu = document.getElementById("format-menu");
+            if (!menu) {
+                console.warn("Elementul 'format-menu' nu a fost gasit!");
+                return;
+            }
         
+            const currentDisplay = window.getComputedStyle(menu).display;
+            menu.style.display = (currentDisplay === "none") ? "block" : "none";
+        
+            // Debug: trimite log la server
+            const logMessage = `toggleMenu apelata. Element ID: ${menu.id}`;
+            console.log(logMessage);
+        
+            // Trimite log la /debug-save
+            fetch('/debug-save', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ message: logMessage, timestamp: Date.now() })
+            }).catch(err => console.error('Eroare la trimiterea log-ului:', err));
+        }
+
        async function undoHistory() {
             if (!currentSessionId) return;
-        
+
             try {
                 const response = await fetch('/api/history/undo', {
                     method: 'POST',
@@ -1603,7 +1812,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                     body: JSON.stringify({session_id: currentSessionId})
                 });
                 const data = await response.json();
-        
+
                 if (data.success && data.filepath) {
                     displayImage(data.image);
                     updateHistory();
@@ -1614,10 +1823,10 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                 console.error("Eroare la undo:", err);
             }
         }
-        
+
         async function redoHistory() {
             if (!currentSessionId) return;
-        
+
             try {
                 const response = await fetch('/api/history/redo', {
                     method: 'POST',
@@ -1625,7 +1834,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                     body: JSON.stringify({session_id: currentSessionId})
                 });
                 const data = await response.json();
-        
+
                 if (data.success && data.filepath) {
                    displayImage(data.image);
                     updateHistory();
@@ -1637,7 +1846,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             }
         }
 
-        
+
         async function checkStatus() {
             try {
                 const response = await fetch('/api/status');
@@ -1655,7 +1864,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         async function uploadImage(file) {
             if (isLoading) return;
 
-            console.log('Începe upload-ul imaginii:', file.name);
+            console.log('Incepe upload-ul imaginii:', file.name);
             setLoading(true);
             const formData = new FormData();
             formData.append('image', file);
@@ -1667,29 +1876,29 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                 });
 
                 const data = await response.json();
-                console.log('Răspuns upload:', data);
+                console.log('Raspuns upload:', data);
 
                 if (data.success) {
                     currentSessionId = data.session_id;
                     console.log('Session ID setat:', currentSessionId);
-                    updateDebugInfo(`Sesiune activă: ${currentSessionId.substring(0, 8)}...`);
+                    updateDebugInfo(`Sesiune activa: ${currentSessionId.substring(0, 8)}...`);
                     displayImage(data.image);
                     enableControls();
                     updateHistory();
-                    showNotification('Imagine încărcată cu succes!', 'success');
+                    showNotification('Imagine Incarcata cu succes!', 'success');
                 } else {
                     showNotification('Eroare: ' + data.error, 'error');
                 }
             } catch (error) {
                 console.error('Eroare la upload:', error);
-                showNotification('Eroare la încărcarea imaginii', 'error');
+                showNotification('Eroare la Incarcarea imaginii', 'error');
             } finally {
                 setLoading(false);
             }
         }
 
         function displayImage(imageSrc) {
-            console.log('Afișare imagine:', imageSrc);
+            console.log('Afisare imagine:', imageSrc);
             const imageDisplay = document.getElementById('image-display');
             imageDisplay.innerHTML = `<img src="${imageSrc}?t=${Date.now()}" id="main-image">`;
         }
@@ -1715,13 +1924,13 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 
         async function colorizeImage() {
             if (!currentSessionId || isLoading) {
-                showNotification('Nu există sesiune activă!', 'error');
+                showNotification('Nu exista sesiune activa!', 'error');
                 return;
             }
 
             console.log('Colorize pentru sesiunea:', currentSessionId);
             setLoading(true);
-            updateDebugInfo('Se aplică colorizarea...');
+            updateDebugInfo('Se aplica colorizarea...');
 
             try {
                 const response = await fetch('/api/colorize', {
@@ -1731,13 +1940,13 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                 });
 
                 const data = await response.json();
-                console.log('Răspuns colorize:', data);
+                console.log('Raspuns colorize:', data);
 
                 if (data.success) {
                     displayImage(data.image);
                     updateHistory();
-                    updateDebugInfo('Colorizare aplicată cu succes');
-                    showNotification('Colorizare aplicată cu succes!', 'success');
+                    updateDebugInfo('Colorizare aplicata cu succes');
+                    showNotification('Colorizare aplicata cu succes!', 'success');
                 } else {
                     showNotification('Eroare: ' + data.error, 'error');
                     updateDebugInfo('Eroare la colorizare: ' + data.error);
@@ -1752,21 +1961,21 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 
         async function applyFilter(filterType, angle = 0) {
             if (!currentSessionId || isLoading) {
-                showNotification('Nu există sesiune activă!', 'error');
+                showNotification('Nu exista sesiune activa!', 'error');
                 return;
             }
 
             console.log('Aplicare filtru:', filterType, 'pentru sesiunea:', currentSessionId);
             setLoading(true);
-            updateDebugInfo(`Se aplică filtrul ${filterType}...`);
+            updateDebugInfo(`Se aplica filtrul ${filterType}...`);
 
             try {
                  const bodyData = { session_id: currentSessionId, filter_type: filterType };
-                // Dacă filtru = rotate, trimitem angle
+                // Daca filtru = rotate, trimitem angle
                 if (filterType === 'rotate') {
                     bodyData.params = { angle: angle };
         }
-            
+
                 const response = await fetch('/api/filter', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
@@ -1777,7 +1986,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                 });
 
                 const data = await response.json();
-                console.log('Răspuns filtru:', data);
+                console.log('Raspuns filtru:', data);
 
                 if (data.success) {
                     displayImage(data.image);
@@ -1829,12 +2038,12 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                 setLoading(false);
             }
         }
-        
+
         async function rotateImage(degrees) {
             if (!currentSessionId || isLoading) return;
-        
+
             setLoading(true);
-        
+
             try {
                 const response = await fetch('/api/filter', {
                     method: 'POST',
@@ -1845,14 +2054,14 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                         params: {angle: degrees}
                     })
                 });
-        
+
                 const data = await response.json();
-        
+
                 if (data.success) {
                    displayImage(data.image)
-        
+
                     updateHistory();
-                    showNotification(`Imagine rotită cu ${degrees}°!`, 'success');
+                    showNotification(`Imagine rotita cu ${degrees}°!`, 'success');
                 } else {
                     showNotification('Eroare: ' + data.error, 'error');
                 }
@@ -1864,16 +2073,16 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             }
         }
 
-        
-        
-        
-        
+
+
+
+
         async function applyBrightness() {
             const intensity = document.getElementById('brightness-intensity').value;
             if (!currentSessionId || isLoading) return;
-        
+
             setLoading(true);
-        
+
             try {
                 const response = await fetch('/api/filter', {
                     method: 'POST',
@@ -1884,19 +2093,19 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                         params: {intensity: parseInt(intensity)}
                     })
                 });
-        
+
                 const data = await response.json();
-        
+
                 if (data.success) {
-                    displayImage(data.image);        // actualizează imaginea
-                    updateHistory();                 // actualizează istoricul
-                    showNotification(`Luminozitate aplicată cu intensitatea ${intensity}!`, 'success');
+                    displayImage(data.image);        // actualizeaza imaginea
+                    updateHistory();                 // actualizeaza istoricul
+                    showNotification(`Luminozitate aplicata cu intensitatea ${intensity}!`, 'success');
                 } else {
                     showNotification('Eroare: ' + data.error, 'error');
                 }
             } catch (error) {
-                console.error('Eroare la aplicarea luminozității:', error);
-                showNotification('Eroare la aplicarea luminozității', 'error');
+                console.error('Eroare la aplicarea luminozitatii:', error);
+                showNotification('Eroare la aplicarea luminozitatii', 'error');
             } finally {
                 setLoading(false);
             }
@@ -1953,13 +2162,13 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                 if (data.success) {
                     displayImage(data.image);
                     updateHistory();
-                    showNotification(`Imaginea a fost mărită ${scaleFactor}x!`, 'success');
+                    showNotification(`Imaginea a fost marita ${scaleFactor}x!`, 'success');
                 } else {
                     showNotification('Eroare: ' + data.error, 'error');
                 }
             } catch (error) {
-                console.error('Eroare la mărirea imaginii:', error);
-                showNotification('Eroare la mărirea imaginii', 'error');
+                console.error('Eroare la marirea imaginii:', error);
+                showNotification('Eroare la marirea imaginii', 'error');
             } finally {
                 setLoading(false);
             }
@@ -1968,7 +2177,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         async function resetImage() {
             if (!currentSessionId || isLoading) return;
 
-            if (!confirm('Sigur doriți să resetați la imaginea originală?')) return;
+            if (!confirm('Sigur doriti sa resetati la imaginea originala?')) return;
 
             setLoading(true);
 
@@ -1984,7 +2193,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                 if (data.success) {
                     displayImage(data.image);
                     updateHistory();
-                    showNotification('Imaginea a fost resetată!', 'success');
+                    showNotification('Imaginea a fost resetata!', 'success');
                 } else {
                     showNotification('Eroare: ' + data.error, 'error');
                 }
@@ -1996,16 +2205,69 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             }
         }
 
-        function saveImage() {
+        function saveImage(format) {
             if (!currentSessionId) return;
-
+        
             const img = document.getElementById('main-image');
-            if (img) {
-                const link = document.createElement('a');
-                link.download = 'processed_image.jpg';
-                link.href = img.src;
-                link.click();
-                showNotification('Imaginea a fost salvată!', 'success');
+            
+            if (!img) {
+                showNotification('Nu există imagine de salvat!', 'error');
+                return;
+            }
+        
+            // Creeaza un canvas pentru conversie
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            
+            // Seteaza dimensiunile canvas-ului
+            canvas.width = img.naturalWidth || img.width;
+            canvas.height = img.naturalHeight || img.height;
+            
+            // Deseneaza imaginea pe canvas
+            ctx.drawImage(img, 0, 0);
+            
+            // Determina MIME type și calitate
+            let mimeType, quality = 0.95;
+            
+            switch(format) {
+                case 'png':
+                    mimeType = 'image/png';
+                    break;
+                case 'jpeg':
+                case 'jpg':
+                case 'jfif':
+                    mimeType = 'image/jpeg';
+                    quality = 0.92;
+                    break;
+                case 'svg':
+                    showNotification('SVG nu este suportat pentru imagini raster. Alegeți PNG sau JPEG.', 'error');
+                    return;
+                default:
+                    mimeType = 'image/png';
+            }
+            
+            // Converteste canvas la blob și descarca
+            try {
+                canvas.toBlob(function(blob) {
+                    if (!blob) {
+                        showNotification('Eroare la salvarea imaginii!', 'error');
+                        return;
+                    }
+                    
+                    const url = URL.createObjectURL(blob);
+                    const link = document.createElement('a');
+                    link.download = `processed_image.${format}`;
+                    link.href = url;
+                    link.click();
+                    
+                    // Elibereaza memoria
+                    URL.revokeObjectURL(url);
+                    
+                    showNotification(`Imaginea a fost salvată ca ${format.toUpperCase()}!`, 'success');
+                }, mimeType, quality);
+            } catch (error) {
+                console.error('Eroare la salvare:', error);
+                showNotification('Eroare la salvarea imaginii!', 'error');
             }
         }
 
@@ -2022,11 +2284,11 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                 });
 
                 const data = await response.json();
-                console.log('Răspuns istoric:', data);
+                console.log('Raspuns istoric:', data);
 
                 if (data.success) {
                     displayHistory(data.history);
-                    updateDebugInfo(`Istoric actualizat: ${data.history.length} intrări`);
+                    updateDebugInfo(`Istoric actualizat: ${data.history.length} intrari`);
                 }
             } catch (error) {
                 console.error('Eroare la actualizarea istoricului:', error);
@@ -2037,7 +2299,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             const historyList = document.getElementById('history-list');
 
             if (history.length === 0) {
-                historyList.innerHTML = '<div style="padding: 20px; text-align: center; color: #666;">Nu există istoric</div>';
+                historyList.innerHTML = '<div style="padding: 20px; text-align: center; color: #666;">Nu exista istoric</div>';
                 return;
             }
 
@@ -2050,7 +2312,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                 </div>`;
             }).join('');
 
-            console.log('Istoric afișat cu', history.length, 'intrări');
+            console.log('Istoric afisat cu', history.length, 'intrari');
         }
 
         async function goToHistory(index) {
@@ -2075,20 +2337,20 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                     document.querySelectorAll('.history-item').forEach((item, i) => {
                         item.classList.toggle('active', i === index);
                     });
-                    showNotification('Navigare în istoric completă!', 'success');
+                    showNotification('Navigare In istoric completa!', 'success');
                 } else {
                     showNotification('Eroare: ' + data.error, 'error');
                 }
             } catch (error) {
-                console.error('Eroare la navigarea în istoric:', error);
-                showNotification('Eroare la navigarea în istoric', 'error');
+                console.error('Eroare la navigarea In istoric:', error);
+                showNotification('Eroare la navigarea In istoric', 'error');
             } finally {
                 setLoading(false);
             }
         }
 
         async function clearHistory() {
-            if (!confirm('Sigur doriți să ștergeți istoricul?')) return;
+            if (!confirm('Sigur doriti sa stergeti istoricul?')) return;
             if (!currentSessionId || isLoading) return;
 
             setLoading(true);
@@ -2099,33 +2361,33 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ session_id: currentSessionId })
                 });
-            
+
                 const data = await response.json();
-            
+
                 if (data.success) {
-                    // Apel reset după clear
+                    // Apel reset dupa clear
                     const resetResponse = await fetch('/api/reset', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ session_id: currentSessionId })
                     });
-            
+
                     const resetData = await resetResponse.json();
-            
+
                     if (resetData.success) {
                         displayImage(resetData.image);    
-                    
-                        updateHistory();  // actualizează lista de istoric
-                        showNotification('Istoric șters și imagine resetată!', 'success');
+
+                        updateHistory();  // actualizeaza lista de istoric
+                        showNotification('Istoric sters si imagine resetata!', 'success');
                     } else {
-                        showNotification('Clear ok, dar reset a eșuat: ' + resetData.error, 'error');
+                        showNotification('Clear ok, dar reset a esuat: ' + resetData.error, 'error');
                     }
                 } else {
                     showNotification('Eroare: ' + data.error, 'error');
                 }
             } catch (error) {
-                console.error('Eroare la ștergerea istoricului:', error);
-                showNotification('Eroare la ștergerea istoricului', 'error');
+                console.error('Eroare la stergerea istoricului:', error);
+                showNotification('Eroare la stergerea istoricului', 'error');
             } finally {
                 setLoading(false);
             }
@@ -2143,7 +2405,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 
 
 def create_templates_dir():
-    """Creează directorul templates și fișierul index.html"""
+    """Creeaza directorul templates si fisierul index.html"""
     if not os.path.exists(TEMPLATES_FOLDER):
         os.makedirs(TEMPLATES_FOLDER)
 
@@ -2152,7 +2414,7 @@ def create_templates_dir():
 
 
 def create_requirements_file():
-    """Creează fișierul requirements.txt"""
+    """Creeaza fisierul requirements.txt"""
     requirements = """flask==2.3.3
 opencv-python==4.8.1.78
 numpy==1.24.3
@@ -2166,46 +2428,18 @@ werkzeug==2.3.7
 
 
 if __name__ == '__main__':
-    print("🚀 Inițializare AI Image Processor - COMPLETELY FIXED VERSION...")
-
-    # Creează fișierele necesare
+    print("Initializare AI Image Processor - PRODUCTION READY VERSION")
     create_templates_dir()
     create_requirements_file()
-
-    print("📁 Directoare și fișiere create cu succes!")
-    print("📦 Pentru a instala dependențele, rulați: pip install -r requirements.txt")
-    print("🌐 Pornesc serverul web local...")
-    load_models()
-    # Încarcă modelele în background
-    #model_thread = threading.Thread(target=load_models, daemon=True)
-    #model_thread.start()
+    # Încarcă modelele **sincron**, astfel încât logurile să fie vizibile
+    #load_models()
 
     # Pornește serverul Flask
-    try:
-        print("\n" + "=" * 80)
-        print("🎨 AI IMAGE PROCESSOR - COMPLETELY FIXED VERSION")
-        print("🌐 Accesează aplicația la: http://localhost:5000")
-        print("📱 Pentru a opri serverul: Ctrl+C")
-        print("\n🔧 PROBLEME REZOLVATE:")
-        print("   ✅ send_from_directory syntax fix pentru Flask 2.3.3")
-        print("   ✅ Filtrele se aplică CUMULATIV pe rezultatul anterior")
-        print("   ✅ Istoricul se salvează PERSISTENT pe disc")
-        print("   ✅ Debugging îmbunătățit cu console.log și status")
-        print("   ✅ Session management complet refactorizat")
-        print("   ✅ Error handling îmbunătățit")
-        print("\n🧪 TESTEAZĂ ACUM:")
-        print("   1. Încarcă o imagine")
-        print("   2. Aplică colorizare AI")
-        print("   3. Aplică un filtru (ex: sepia)")
-        print("   4. Aplică alt filtru (ex: blur)")
-        print("   5. Verifică istoricul - toate efectele ar trebui să se suprapună!")
-        print("=" * 80 + "\n")
-
-        app.run(debug=True, host='0.0.0.0', port=5000, threaded=True)
-
-    except KeyboardInterrupt:
-        print("\n👋 Serverul a fost oprit.")
-    except Exception as e:
-        print(f"\n❌ Eroare la pornirea serverului: {e}")
-        print("💡 Verifică că portul 5000 nu este ocupat și că ai instalat dependențele.")
-        print("   Rulează: pip install -r requirements.txt")
+    port = int(os.environ.get('PORT', 5000))
+    app.run(
+        host='0.0.0.0',
+        port=port,
+        debug=False,  # debug=True doar local
+        threaded=True,
+        use_reloader=False
+    )
