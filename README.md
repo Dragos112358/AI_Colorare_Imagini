@@ -25,5 +25,5 @@ Sistem de Debug: Monitorizarea sesiunii active în timp real.
 Limbaj: Python
 Interfață Grafică: Tkinter
 Procesare Imagine: OpenCV, Pillow
-Deep Learning: PyTorch / TensorFlow (pentru funcțiile AI de colorare și detecție)
+Deep Learning: PyTorch si TensorFlow (pentru funcțiile AI de colorare și detecție)
 NumPy: Pentru manipularea matricială a pixelilor.
